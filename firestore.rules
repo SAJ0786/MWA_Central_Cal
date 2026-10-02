@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn()  { return request.auth != null; }
+    function userDoc()   { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isAdmin()   { return signedIn() && userDoc().data.role == 'admin'; }
+
+    // ── Users ────────────────────────────────────────────────────────────────
+    // Admin accounts only; there is no public self-signup in this app.
+    match /users/{userId} {
+      allow read:   if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Events / bookings ───────────────────────────────────────────────────
+    // All reads/writes to the real collection require an authenticated admin.
+    // Public visitors never read or write this collection directly:
+    //  - submitting a booking goes through the submitBooking Cloud Function
+    //    (Admin SDK, server-side conflict check, forces status=pending)
+    //  - public listing goes through the getPublicEvents Cloud Function /
+    //    the /v1/events REST endpoint, which returns only public+confirmed
+    //    fields with private contact/notes stripped out.
+    match /events/{eventId} {
+      allow read:  if isAdmin();
+      allow write: if false; // writes only via Cloud Functions (Admin SDK)
+    }
+
+    // ── Venues & departments ─────────────────────────────────────────────────
+    // Public read so the booking form can list options without signing in.
+    match /venues/{venueId} {
+      allow read:  if true;
+      allow write: if isAdmin();
+    }
+    match /departments/{deptId} {
+      allow read:  if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Calendar settings (Hijri adjustment etc.) ───────────────────────────
+    // Public read so the calendar can render correct Hijri dates for guests.
+    match /calendarSettings/{docId} {
+      allow read:  if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Audit log ────────────────────────────────────────────────────────────
+    // Admin-only, and only ever written by Cloud Functions (Admin SDK).
+    match /auditLog/{entryId} {
+      allow read:  if isAdmin();
+      allow write: if false;
+    }
+  }
+}

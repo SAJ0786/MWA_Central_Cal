@@ -1,0 +1,129 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Community Hub Calendar – Prototype & Brief</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f6f7f9;--card:#fff;--fg:#1a1d23;--mut:#667085;--bd:#e3e6eb;--ac:#2563eb}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111318;--card:#1a1d24;--fg:#eceef2;--mut:#98a2b3;--bd:#2c313b;--ac:#6b9bff}}
+:root[data-theme="dark"]{--bg:#111318;--card:#1a1d24;--fg:#eceef2;--mut:#98a2b3;--bd:#2c313b;--ac:#6b9bff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--bd)}
+h1{font-size:18px;margin:0}nav{display:flex;gap:4px}
+button,select,input{font:inherit;color:inherit}
+.tab,.btn{border:1px solid var(--bd);background:var(--card);padding:7px 14px;border-radius:8px;cursor:pointer}
+.tab.on,.btn.pri{background:var(--ac);border-color:var(--ac);color:#fff}
+.btn.del{color:#dc2626}main{max-width:1100px;margin:0 auto;padding:18px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}.sp{flex:1}
+.chip{border-radius:14px;padding:3px 11px;font-size:13px;cursor:pointer;border:2px solid;background:transparent}
+.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border:1px solid var(--bd);border-radius:10px;overflow:hidden;background:var(--card)}
+.dh{padding:6px;font-size:12px;color:var(--mut);text-align:center;border-bottom:1px solid var(--bd)}
+.cell{min-height:98px;padding:4px;border-right:1px solid var(--bd);border-bottom:1px solid var(--bd);cursor:pointer;overflow:hidden}
+.cell:nth-child(7n+7){border-right:0}.cell.out{opacity:.4}.cell.today .n{background:var(--ac);color:#fff}
+.n{display:inline-block;font-size:12px;min-width:20px;text-align:center;border-radius:10px;padding:0 4px}
+.ev{display:block;width:100%;text-align:left;margin-top:2px;border:0;border-radius:4px;padding:1px 5px;font-size:11.5px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.ev.pend{opacity:.6;outline:1px dashed #fff;outline-offset:-2px}.more{font-size:11px;color:var(--mut)}
+.wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--bd)}
+th,td{padding:8px 10px;border-bottom:1px solid var(--bd);text-align:left;font-size:14px;white-space:nowrap}th{color:var(--mut);font-weight:500}
+.tag{font-size:12px;padding:2px 8px;border-radius:10px;color:#fff}.st-c{background:#059669}.st-p{background:#d97706}
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;padding:16px;z-index:9}
+#ov.show{display:flex}.dlg{background:var(--card);border-radius:12px;padding:20px;width:100%;max-width:440px;max-height:92%;overflow:auto}
+.dlg label{display:block;font-size:13px;color:var(--mut);margin-top:10px}.dlg input,.dlg select{width:100%;padding:8px;border:1px solid var(--bd);border-radius:8px;background:var(--bg)}
+.r2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.err{color:#dc2626;font-size:13px;margin-top:10px}
+.brief{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px 24px 20px}.brief h2{font-size:17px;margin:22px 0 6px;color:var(--ac)}
+.brief table{font-size:13.5px}.brief td,.brief th{white-space:normal;vertical-align:top}code,pre{background:var(--bg);border-radius:6px;font-size:12.5px}pre{padding:10px;overflow-x:auto}code{padding:1px 5px}
+.h{font-size:10.5px;color:var(--mut);margin-left:3px;font-weight:400}.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}.stat{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:8px 14px;font-size:13px;color:var(--mut)}.stat b{display:block;font-size:20px;color:var(--fg)}
+</style></head><body>
+<header><h1>📅 Community Hub Calendar <span style="font-weight:400;color:var(--mut);font-size:13px">prototype</span></h1>
+<nav><button class="tab on" data-t="cal">Calendar</button><button class="tab" data-t="bk">Bookings</button><button class="tab" data-t="br">Project brief</button></nav>
+<label style="font-size:13px;color:var(--mut)">Viewing as <select id="role"><option value="admin">Admin (Central team)</option><option value="dept">Department user</option></select></label></header>
+<main>
+<section id="cal"><div class="stats" id="stats"></div>
+<div class="bar"><button class="btn" id="prev">‹</button><strong id="mt" style="min-width:140px;text-align:center"></strong><button class="btn" id="next">›</button><button class="btn" id="tod">Today</button><span class="sp"></span><label class="btn"><input type="checkbox" id="hs" checked> Hijri</label><select id="ho" class="btn" title="Moon-sighting adjustment (days)"><option value="-2">Hijri -2d</option><option value="-1">Hijri -1d</option><option value="0" selected>Hijri ±0</option><option value="1">Hijri +1d</option><option value="2">Hijri +2d</option></select><select id="vf" class="btn"></select><button class="btn pri" id="add">+ New booking</button></div>
+<div class="bar" id="chips"></div><div class="grid" id="g"></div></section>
+<section id="bk" hidden><div class="wrap"><table><thead><tr><th>Date</th><th>Time</th><th>Event</th><th>Department</th><th>Venue</th><th>Status</th><th></th></tr></thead><tbody id="tb"></tbody></table></div></section>
+<section id="br" hidden><div class="brief">
+<h2>1. Overview</h2><p>A single, shared calendar that is the source of truth for every event, hire and programme run by the organisation. Departments (Event Organisers, Private Hire Booking, Local Events, Community Programs) check availability and submit bookings themselves; a central team approves. The prototype above is a working front end with in-browser data; the build should be API-first so the future website and mobile app consume the same data.</p>
+<h2>2. Problem &amp; goals</h2><p><b>Problem:</b> Teams coordinate by email, phone and separate spreadsheets, causing double-bookings, slow confirmation and no single view of venue usage.</p>
+<ul><li>Eliminate double-bookings through automatic conflict checking per venue.</li><li>Cut manual coordination: self-service booking with an approval step.</li><li>One data source that feeds the public website, app and internal reporting.</li></ul>
+<h2>3. Users &amp; roles</h2><table><tr><th>Role</th><th>Can do</th></tr><tr><td>Admin (central team)</td><td>Full access; approve/reject/cancel; manage venues, departments, users</td></tr><tr><td>Department user</td><td>View all; create and edit own department's bookings (submitted as Pending)</td></tr><tr><td>Read-only / Public</td><td>See confirmed public events only (via website/app)</td></tr></table>
+<h2>4. MVP scope</h2><ul><li>Month / week / day calendar, filter by department and venue</li><li>Create, edit, cancel bookings; overlap detection per venue</li><li>Status workflow: Pending → Confirmed / Rejected / Cancelled</li><li>Email notifications on submit and decision</li><li>Role-based login; audit log of changes</li><li>Public/private visibility flag per event</li><li><b>Hijri (Islamic) calendar</b> alongside Gregorian: dual dates, Hijri-based events, moon-sighting day adjustment</li><li>iCal (.ics) feed and CSV export</li></ul>
+<p><b>Out of scope (MVP):</b> payments/invoicing, ticketing, recurring-series exceptions, resource inventory (chairs, AV) – planned for Phase 3.</p>
+<h2>5. Core data model</h2><table><tr><th>Entity</th><th>Key fields</th></tr><tr><td>Event / Booking</td><td>id, title, departmentId, venueId, start, end, status, visibility, contact, notes, dateBasis (gregorian|hijri), hijriDate {day, month, year}, recurrenceRule (incl. yearly/monthly on a Hijri date), createdBy, updatedAt</td></tr><tr><td>Venue</td><td>id, name, capacity, hireable, openingHours, bufferMinutes</td></tr><tr><td>Department</td><td>id, name, colour, approvalRequired</td></tr><tr><td>User</td><td>id, name, email, role, departmentId</td></tr><tr><td>CalendarSettings</td><td>hijriMethod, hijriDayAdjustment, adjustedBy, effectiveFrom</td></tr><tr><td>AuditLog</td><td>id, entityId, action, userId, timestamp, diff</td></tr></table>
+<h2>6. Integration-ready design</h2><ul><li><b>REST API</b> (JSON, OpenAPI documented), versioned <code>/v1</code>; token auth per app.</li><li><b>Webhooks</b> on create/update/status change so website, CRM or messaging can react.</li><li><b>Embeddable widget</b> and public read-only endpoint for the website.</li><li><b>iCal feeds</b> per department and venue for Google/Outlook.</li><li>Store all times in UTC with organisation timezone (Australia/Sydney) for display.</li></ul>
+<pre>GET  /v1/events?from=2026-10-01&amp;to=2026-10-31&amp;venue=main-hall&amp;status=confirmed
+POST /v1/events        → 201 | 409 {conflictWith: "evt_123"}
+PATCH /v1/events/:id/status   {"status":"confirmed"}
+GET  /v1/availability?venue=main-hall&amp;date=2026-10-12</pre>
+<h2>6a. Hijri calendar support</h2><ul><li><b>Canonical storage:</b> every event keeps a resolved Gregorian start/end (UTC), so conflict checks, iCal and integrations stay simple. Hijri-based events also keep their source <code>hijriDate</code> and are re-resolved whenever the adjustment changes.</li><li><b>Dual display:</b> Gregorian and Hijri dates shown together in the calendar, lists and emails, with a per-user toggle. The month header shows the Hijri month range.</li><li><b>Entering dates:</b> choose Gregorian or Hijri when booking, with a live conversion preview.</li><li><b>Moon-sighting adjustment:</b> many communities start months by sighting, so calculated dates can differ by 1–2 days. Admins set the adjustment (ideally per Hijri month), it is audit-logged, and affected organisers are notified when a booking moves.</li><li><b>Recurrence:</b> yearly (e.g. annual commemorations) and monthly events on a Hijri day.</li><li><b>API:</b> events return both dates, e.g. <code>"date":"2026-10-13","hijri":{"day":1,"month":5,"monthName":"Jumada I","year":1448}</code>, and can be filtered with <code>hijriMonth</code> / <code>hijriYear</code>. iCal export uses Gregorian dates.</li><li><b>Consistency:</b> reuse the same Hijri conversion logic as the Community Events App (extract it into a shared module) so both products always agree.</li></ul><p style="font-size:13px;color:var(--mut)">Prototype note: it uses the browser's built-in tabular (civil) Islamic calendar plus a global ±2 day adjustment. Production should use the authoritative method confirmed in discovery.</p><h2>7. Suggested technology</h2><p>React + TypeScript front end (PWA) with a Firebase backend (Auth, Firestore, Cloud Functions for conflict checks, notifications and the REST layer). Conflict checks must be enforced server-side in a transaction, not just in the UI. Alternative: Postgres (Supabase) if reporting needs grow.</p>
+<h2>8. Delivery plan</h2><table><tr><th>Phase</th><th>Outcome</th><th>Indicative</th></tr><tr><td>0 – Discovery</td><td>Workshops with each team, venue list, approval rules, sign-off of this brief</td><td>2 wks</td></tr><tr><td>1 – MVP</td><td>Auth, calendar, booking + conflicts, approvals, notifications, iCal</td><td>6–8 wks</td></tr><tr><td>2 – Integration</td><td>Public API, webhooks, website widget, app-ready endpoints</td><td>3–4 wks</td></tr><tr><td>3 – Enhance</td><td>Recurring events, resources, reporting, payments</td><td>Ongoing</td></tr></table>
+<h2>9. Success measures</h2><ul><li>Zero double-bookings after go-live</li><li>Booking-to-confirmation time reduced by 50%+</li><li>All departments booking through the tool within 3 months</li><li>Reduction in coordination emails/calls (baseline survey in Phase 0)</li></ul>
+<h2>10. Risks &amp; open questions</h2><ul><li>Adoption: teams keep using spreadsheets – mitigate with training and a cut-over date.</li><li>Approval rules differ per department – confirm in discovery.</li><li>Privacy: private hire details must not appear in public feeds.</li><li>Open: Which Hijri method is authoritative, and who announces the moon-sighting adjustment? Do hires need buffers for setup/pack-down? Who owns final approval? Are there fees per venue? Do existing bookings need migrating?</li></ul>
+</div></section></main>
+<div id="ov"><div class="dlg"><h3 id="dt" style="margin:0"></h3>
+<label>Title</label><input id="f-t">
+<div class="r2"><div><label>Department</label><select id="f-d"></select></div><div><label>Venue</label><select id="f-v"></select></div></div>
+<label>Date based on</label><select id="f-b"><option value="g">Gregorian</option><option value="h">Hijri (Islamic)</option></select><div id="gd"><label>Date</label><input type="date" id="f-date"></div><div id="hd" hidden><div style="display:grid;grid-template-columns:70px 1fr 90px;gap:10px"><div><label>Day</label><input type="number" id="h-d" min="1" max="30"></div><div><label>Month</label><select id="h-m"></select></div><div><label>Year (AH)</label><input type="number" id="h-y"></div></div></div><div class="h" id="gh" style="margin:6px 0 0;font-size:12.5px"></div><div class="r2"><div><label>Start</label><input type="time" id="f-s"></div><div><label>End</label><input type="time" id="f-e"></div></div>
+<div class="r2"><div><label>Contact</label><input id="f-c"></div><div><label>Status</label><select id="f-st"><option value="pending">Pending</option><option value="confirmed">Confirmed</option></select></div></div>
+<div class="err" id="err"></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn pri" id="sv">Save</button><button class="btn" id="cx">Close</button><span class="sp"></span><button class="btn del" id="dl">Delete</button></div></div></div>
+<script>
+const D={eo:['Event Organisers','#2563eb'],ph:['Private Hire','#c2410c'],le:['Local Events','#047857'],cp:['Community Programs','#7e22ce']};
+const V=['Main Hall','Meeting Room','Courtyard'],K='chc-events2';
+const $=i=>document.getElementById(i),esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const off=n=>{const d=new Date();d.setDate(d.getDate()+n);return iso(d)};
+const HM=['Muharram','Safar',"Rabi' I","Rabi' II",'Jumada I','Jumada II','Rajab',"Sha'ban",'Ramadan','Shawwal',"Dhu al-Qa'dah",'Dhu al-Hijjah'];
+let HO=0;const HF=new Intl.DateTimeFormat('en-u-ca-islamic-civil-nu-latn',{day:'numeric',month:'numeric',year:'numeric'});
+function g2h(s){const [y,m,d]=s.split('-').map(Number),p={};HF.formatToParts(new Date(y,m-1,d+HO,12)).forEach(x=>p[x.type]=x.value);return{d:+p.day,m:+p.month,y:parseInt(p.year)}}
+function h2g(h){const yr=Math.floor(h.y*0.970229+621.5744);const t=new Date(yr-1,0,1,12);for(let i=0;i<1100;i++){const q=g2h(iso(t));if(q.y===h.y&&q.m===h.m&&q.d===h.d)return iso(t);t.setDate(t.getDate()+1)}return ''}
+const fh=h=>h.d+' '+HM[h.m-1]+' '+h.y;
+function sync(){const h=$('f-b').value==='h';$('gd').hidden=h;$('hd').hidden=!h;
+if(h){const g=h2g({d:+$('h-d').value,m:+$('h-m').value,y:+$('h-y').value});$('f-date').value=g;$('gh').textContent=g?'= '+new Date(g+'T12:00').toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+(HO?' (with '+(HO>0?'+':'')+HO+' day adjustment)':''):'Not a valid Hijri date'}
+else{$('gh').textContent=$('f-date').value?'= '+fh(g2h($('f-date').value))+' AH':''}}
+let ev=[];try{ev=JSON.parse(localStorage.getItem(K)||'[]')}catch(e){}
+if(!ev.length)ev=[
+['Youth Soccer Clinic','le','Courtyard',2,'09:00','11:00','confirmed'],['Wedding Reception – Khan','ph','Main Hall',5,'12:00','22:00','confirmed'],
+['Committee Meeting','cp','Meeting Room',3,'18:00','19:30','confirmed'],['Diwali Community Night','eo','Main Hall',12,'17:00','21:00','confirmed'],
+['Birthday Hire – Lee','ph','Main Hall',12,'10:00','15:00','pending'],['Seniors Craft Morning','cp','Meeting Room',8,'10:00','12:00','confirmed'],
+['Local Makers Market','le','Courtyard',15,'08:00','14:00','pending'],['Volunteer Training','eo','Meeting Room',20,'17:30','19:30','confirmed']
+].map((a,i)=>({id:'e'+i,title:a[0],dept:a[1],venue:a[2],date:off(a[3]),start:a[4],end:a[5],status:a[6],contact:''})).concat([
+{id:'h1',title:'Monthly Majlis',dept:'cp',venue:'Main Hall',basis:'h',hd:{d:1,m:5,y:1448},date:'',start:'19:00',end:'21:00',status:'confirmed',contact:''},
+{id:'h2',title:'Youth Lecture',dept:'eo',venue:'Meeting Room',basis:'h',hd:{d:25,m:4,y:1448},date:'',start:'18:30',end:'20:00',status:'confirmed',contact:''},
+{id:'h3',title:'Ladies Majlis',dept:'cp',venue:'Meeting Room',basis:'h',hd:{d:5,m:5,y:1448},date:'',start:'10:00',end:'12:00',status:'pending',contact:''}]);
+ev.forEach(e=>{if(e.basis==='h')e.date=h2g(e.hd)});const save=()=>{try{localStorage.setItem(K,JSON.stringify(ev))}catch(e){}};
+let cur=new Date();cur.setDate(1);let on=new Set(Object.keys(D)),vf='',editing=null;
+const admin=()=>$('role').value==='admin';
+$('vf').innerHTML='<option value="">All venues</option>'+V.map(v=>`<option>${v}</option>`).join('');
+$('f-v').innerHTML=V.map(v=>`<option>${v}</option>`).join('');
+$('f-d').innerHTML=Object.entries(D).map(([k,v])=>`<option value="${k}">${v[0]}</option>`).join('');
+$('h-m').innerHTML=HM.map((n,i)=>`<option value="${i+1}">${n}</option>`).join('');
+['f-b','f-date','h-d','h-m','h-y'].forEach(i=>$(i).addEventListener('input',sync));
+$('hs').onchange=()=>render();$('ho').onchange=e=>{HO=+e.target.value;ev.forEach(x=>{if(x.basis==='h')x.date=h2g(x.hd)});save();render()};
+function chips(){$('chips').innerHTML=Object.entries(D).map(([k,v])=>`<button class="chip" data-k="${k}" style="border-color:${v[1]};${on.has(k)?`background:${v[1]};color:#fff`:`color:${v[1]}`}">${v[0]}</button>`).join('')}
+const shown=()=>ev.filter(e=>on.has(e.dept)&&(!vf||e.venue===vf));
+function render(){chips();const y=cur.getFullYear(),m=cur.getMonth(),o=(new Date(y,m,1).getDay()+6)%7,n=new Date(y,m+1,0).getDate(),tot=Math.ceil((o+n)/7)*7,td=iso(new Date());
+{const a=g2h(iso(new Date(y,m,1))),b=g2h(iso(new Date(y,m,n)));$('mt').innerHTML=cur.toLocaleDateString('en-AU',{month:'long',year:'numeric'})+($('hs').checked?`<div class="h" style="margin:0">${HM[a.m-1]} ${a.y}${a.m!==b.m||a.y!==b.y?' – '+HM[b.m-1]+' '+b.y:''} AH</div>`:'')}
+let h=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div class="dh">${d}</div>`).join('');const S=shown();
+for(let i=0;i<tot;i++){const d=new Date(y,m,1-o+i),s=iso(d),es=S.filter(e=>e.date===s).sort((a,b)=>a.start.localeCompare(b.start));const hh=g2h(s),hs=$('hs').checked;
+h+=`<div class="cell ${d.getMonth()!==m?'out':''} ${s===td?'today':''}" data-d="${s}"><span class="n">${d.getDate()}</span>${hs?`<span class="h">${hh.d}${hh.d===1?' '+HM[hh.m-1]:''}</span>`:''}`+es.slice(0,3).map(e=>`<button class="ev ${e.status==='pending'?'pend':''}" data-id="${e.id}" style="background:${D[e.dept][1]}" title="${esc(e.title)} · ${e.venue}">${e.basis==='h'?'☾ ':''}${e.start} ${esc(e.title)}</button>`).join('')+(es.length>3?`<div class="more">+${es.length-3} more</div>`:'')+'</div>'}
+$('g').innerHTML=h;
+const mon=ev.filter(e=>e.date.startsWith(y+'-'+String(m+1).padStart(2,'0')));
+$('stats').innerHTML=`<div class="stat"><b>${mon.length}</b>events this month</div><div class="stat"><b>${mon.filter(e=>e.status==='confirmed').length}</b>confirmed</div><div class="stat"><b>${ev.filter(e=>e.status==='pending').length}</b>awaiting approval</div>`;
+const L=[...ev].sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start));
+$('tb').innerHTML=L.map(e=>`<tr><td>${e.date}<div class="h" style="margin:0">${fh(g2h(e.date))}</div></td><td>${e.start}–${e.end}</td><td>${esc(e.title)}</td><td>${D[e.dept][0]}</td><td>${e.venue}</td><td><span class="tag ${e.status==='confirmed'?'st-c':'st-p'}">${e.status}</span></td><td>${admin()&&e.status==='pending'?`<button class="btn" data-ok="${e.id}">Approve</button> `:''}<button class="btn" data-id="${e.id}">Edit</button></td></tr>`).join('')}
+function open(id,date){editing=id?ev.find(e=>e.id===id):null;const e=editing||{title:'',dept:'eo',venue:V[0],date:date||iso(new Date()),start:'09:00',end:'10:00',contact:'',status:'pending'};
+$('dt').textContent=editing?'Edit booking':'New booking';$('f-t').value=e.title;$('f-d').value=e.dept;$('f-v').value=e.venue;$('f-date').value=e.date;$('f-b').value=e.basis||'g';{const h=e.hd||g2h(e.date);$('h-d').value=h.d;$('h-m').value=h.m;$('h-y').value=h.y}sync();$('f-s').value=e.start;$('f-e').value=e.end;$('f-c').value=e.contact||'';$('f-st').value=e.status;
+$('f-st').disabled=!admin();$('dl').style.display=editing&&admin()?'':'none';$('err').textContent='';$('ov').classList.add('show')}
+function saveIt(){const hb=$('f-b').value==='h';sync();const e={basis:hb?'h':'g',hd:hb?{d:+$('h-d').value,m:+$('h-m').value,y:+$('h-y').value}:null,title:$('f-t').value.trim(),dept:$('f-d').value,venue:$('f-v').value,date:$('f-date').value,start:$('f-s').value,end:$('f-e').value,contact:$('f-c').value.trim(),status:admin()?$('f-st').value:(editing?editing.status:'pending')};
+if(!e.title||!e.date)return $('err').textContent='Title and date are required.';if(e.end<=e.start)return $('err').textContent='End time must be after start time.';
+const c=ev.find(x=>x!==editing&&x.venue===e.venue&&x.date===e.date&&x.start<e.end&&e.start<x.end);
+if(c)return $('err').textContent=`Conflict: ${e.venue} is already booked for "${c.title}" (${c.start}–${c.end}, ${D[c.dept][0]}).`;
+if(editing)Object.assign(editing,e);else ev.push({id:'e'+Date.now(),...e});save();$('ov').classList.remove('show');render()}
+document.addEventListener('click',t=>{const x=t.target.closest('button,.cell');if(!x)return;
+if(x.dataset.t){document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b===x));['cal','bk','br'].forEach(s=>$(s).hidden=s!==x.dataset.t);return}
+if(x.dataset.k){on.has(x.dataset.k)?on.delete(x.dataset.k):on.add(x.dataset.k);return render()}
+if(x.dataset.ok){ev.find(e=>e.id===x.dataset.ok).status='confirmed';save();return render()}
+if(x.classList.contains('ev')||x.dataset.id)return open(x.dataset.id);
+if(x.classList.contains('cell'))open(null,x.dataset.d)});
+$('prev').onclick=()=>{cur.setMonth(cur.getMonth()-1);render()};$('next').onclick=()=>{cur.setMonth(cur.getMonth()+1);render()};
+$('tod').onclick=()=>{cur=new Date();cur.setDate(1);render()};$('add').onclick=()=>open();$('vf').onchange=e=>{vf=e.target.value;render()};$('role').onchange=render;
+$('sv').onclick=saveIt;$('cx').onclick=()=>$('ov').classList.remove('show');$('dl').onclick=()=>{ev=ev.filter(e=>e!==editing);save();$('ov').classList.remove('show');render()};
+render();
+</script></body></html>
