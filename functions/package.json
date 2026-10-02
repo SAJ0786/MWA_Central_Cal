@@ -1,7 +1,7 @@
 {
   "name": "community-hub-calendar-functions",
   "description": "Cloud Functions for the Community Hub Calendar (conflict checks, approvals, public API, iCal feed, email seam).",
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "main": "index.js",
   "scripts": {
     "serve": "firebase emulators:start --only functions,firestore,hosting,auth",

@@ -15,7 +15,19 @@ reuses the Hijri calendar conversion logic from the `community-events-app` repos
 
 ## Status
 
-This is an MVP implementation, not deployed. See **docs/SETUP.md** before running it.
+This MVP is deployed to Firebase project `project-7a4fb531-414f-4ade-88e`
+("MWA Central Cal"), Hosting + Firestore + Cloud Functions all in `australia-southeast1`:
+
+- **Live site**: https://project-7a4fb531-414f-4ade-88e.web.app
+- **Source code**: https://github.com/SAJ0786/MWA_Central_Cal
+
+**Not yet done (needs a human decision, not a deploy step)**: no admin account exists
+yet, and no venues/departments are seeded, so the app currently shows an empty public
+calendar with nothing to book against. See **docs/SETUP.md §4–5** to create the first
+admin and seed starter data. Email sending is deployed but inactive (safe no-op) until
+real SMTP credentials are configured — see **docs/EMAIL_SETUP.md**.
+
+See **docs/SETUP.md** for the full setup/deploy reference.
 
 Implemented:
 - Month calendar with department/venue filters, Gregorian + Hijri dual dates, admin
