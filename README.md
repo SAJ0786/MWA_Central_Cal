@@ -1,4 +1,4 @@
-# Community Hub Calendar — MVP
+# MWA Central Calendar — MVP
 
 A shared, source-of-truth booking calendar for venues and departments, built with
 **React + Vite** (frontend) and **Firebase** (Auth, Firestore, Cloud Functions, Hosting).
@@ -9,9 +9,10 @@ bookings, manage venues/departments, adjust the Hijri moon-sighting correction, 
 an audit log.
 
 This repository was scaffolded from `Community Hub Calendar – Prototype & Brief.html`
-and `Prototype and Brief/Community-Calendar-Project-Brief.docx` in this folder, and
-reuses the Hijri calendar conversion logic from the `community-events-app` repository
-(see `src/services/hijriService.js`).
+and `Prototype and Brief/Community-Calendar-Project-Brief.docx` in this folder (the
+app has since been renamed to MWA Central Calendar; the original prototype/brief
+filenames are kept as-is for provenance), and reuses the Hijri calendar conversion
+logic from the `community-events-app` repository (see `src/services/hijriService.js`).
 
 ## Status
 

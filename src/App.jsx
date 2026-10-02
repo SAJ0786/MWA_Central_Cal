@@ -47,7 +47,7 @@ export default function App() {
   if (!firebaseConfigured) {
     return (
       <div style={{ maxWidth: 640, margin: '60px auto', padding: 20 }}>
-        <h1>Community Hub Calendar</h1>
+        <h1>MWA Central Calendar</h1>
         <p>
           Firebase is not configured yet. Copy <code>.env.example</code> to <code>.env</code>,
           fill in your Firebase project's web app credentials, and restart the dev server.

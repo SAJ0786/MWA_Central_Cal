@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { HIJRI_MONTHS, hijriToGregorian, getHijriParts } from '../services/hijriService.js';
-import { localToUtcIso, formatInOrgTz } from '../utils/dateUtils.js';
+import { localToUtcIso, formatInOrgTz, dateKeyInOrgTz, timeKeyInOrgTz } from '../utils/dateUtils.js';
 import { submitBooking, decideBooking, updateBooking } from '../services/eventsService.js';
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => dateKeyInOrgTz(new Date().toISOString());
 
 export default function BookingModal({
   open, onClose, venues, departments, editing, isAdmin, hijriOverrides, onSaved, initialDate
@@ -36,6 +36,13 @@ export default function BookingModal({
     const name = HIJRI_MONTHS.find(m => m.value === h.month)?.name || '';
     return `${h.day} ${name} ${h.year} AH`;
   }, [form.basis, form.date, hijriOverrides]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onKeyDown(e) { if (e.key === 'Escape') onClose && onClose(); }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -109,9 +116,10 @@ export default function BookingModal({
   }
 
   return (
-    <div className="overlay show">
-      <div className="dlg">
-        <h3 style={{ marginTop: 0 }}>{editing ? 'Booking details' : 'New booking request'}</h3>
+    <div className="overlay show" onClick={onClose}>
+      <div className="dlg" role="dialog" aria-modal="true" aria-labelledby="booking-modal-title" onClick={e => e.stopPropagation()}>
+        <button type="button" className="dlg-close" onClick={onClose} aria-label="Close dialog">✕</button>
+        <h3 id="booking-modal-title" style={{ marginTop: 0, paddingRight: 36 }}>{editing ? 'Booking details' : 'New booking request'}</h3>
 
         <form onSubmit={isAdmin && editing ? handleAdminSave : handlePublicSubmit}>
           <label>Title</label>
@@ -169,7 +177,7 @@ export default function BookingModal({
           )}
           {form.basis === 'h' && !editing && (
             <div className="muted">
-              {gregorianDate ? `= ${formatInOrgTz(gregorianDate + 'T12:00:00', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}` : 'Not a valid Hijri date'}
+              {gregorianDate ? `= ${formatInOrgTz(localToUtcIso(gregorianDate, '12:00'), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}` : 'Not a valid Hijri date'}
             </div>
           )}
 
@@ -229,7 +237,6 @@ export default function BookingModal({
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
             {(isAdmin && editing) ? <button className="btn pri" disabled={busy || locked} type="submit">Save changes</button>
               : !editing ? <button className="btn pri" disabled={busy || locked} type="submit">Submit request</button> : null}
-            <button type="button" className="btn" onClick={onClose}>Close</button>
           </div>
         </form>
       </div>
@@ -239,7 +246,7 @@ export default function BookingModal({
 
 function emptyForm(editing, initialDate, isAdmin) {
   if (editing) {
-    const dateKey = editing.startAt ? new Date(editing.startAt).toISOString().slice(0, 10) : todayStr();
+    const dateKey = editing.startAt ? dateKeyInOrgTz(editing.startAt) : todayStr();
     return {
       title: editing.title || '', departmentId: editing.departmentId || '', venueId: editing.venueId || '',
       basis: 'g', date: dateKey,
@@ -261,8 +268,13 @@ function emptyForm(editing, initialDate, isAdmin) {
   };
 }
 
+// Pre-fills an edit form's time input from a stored UTC instant. Must read
+// the org timezone's wall-clock hour/minute — using Date#getHours/getMinutes
+// here would read the *browser's* local timezone instead, which silently
+// shifted displayed (and, if saved back, persisted) booking times whenever
+// the browser wasn't itself set to Australia/Sydney (e.g. 12:00–16:00 Sydney
+// showing/saving as a different clock time entirely).
 function isoTime(iso) {
   if (!iso) return '09:00';
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return timeKeyInOrgTz(iso) || '09:00';
 }

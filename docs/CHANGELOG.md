@@ -19,6 +19,109 @@ authorization.
 everything and deploy and push to git" once the batch below was ready. See the entry
 below for exactly what was pushed/deployed and when.
 
+## Batch: app rename, timezone/DST fix, venue/department edit UI, confirmed-booking visibility, sign-in redesign, dialog close button
+
+**Requested by user** (timezone clarified as Australia/Sydney civil time — AEST in
+southern winter, AEDT during daylight saving):
+
+1. **App renamed throughout** from "Community Hub Calendar" to **"MWA Central
+   Calendar"** — page `<title>`, headings, `package.json`/`package-lock.json` names
+   (both app and `functions/`), iCal feed `PRODID`, README, `docs/EMAIL_SETUP.md`
+   example. **Deliberately left unchanged:** the iCal `UID` domain suffix
+   (`...@community-hub-calendar`, in both `src/services/exportService.js` and
+   `functions/index.js`'s `icalFeed`) — changing it would make every previously-synced
+   event look "new" to anyone already subscribed to the public iCal feed, duplicating
+   their calendar; documented inline at both call sites. The historical prototype/brief
+   filename is also left as-is (provenance, not a live app string).
+2. **Fixed a real booking-time-shift bug** (e.g. a 12:00–16:00 Sydney booking showing/
+   saving as a different clock time): two separate bugs, found by grep for host-local
+   `Date#getHours/getMinutes`/un-zoned `toLocaleTimeString` calls applied to stored UTC
+   instants:
+   - `src/components/BookingModal.jsx`'s `isoTime()` (edit-form time prefill) and the
+     editing-date prefill in `emptyForm()` read the **browser's own system timezone**
+     instead of Sydney — on a non-Sydney-timezone browser this pre-filled the wrong
+     time-of-day/date when opening a booking to edit, and if saved without the admin
+     manually correcting it, the (already-correct) `localToUtcIso` would re-interpret
+     that wrong time as Sydney-local, persisting a genuinely shifted UTC instant. Fixed
+     by adding `timeKeyInOrgTz`/`toOrgTimeParts` to `src/utils/dateUtils.js` (the client
+     twin of the existing server-side `toOrgTimeParts`) and using them instead of
+     `Date#getHours/getMinutes`/`.toISOString().slice(0,10)`.
+   - `src/pages/CalendarPage.jsx`'s per-event time label omitted `timeZone:
+     'Australia/Sydney'` entirely, also falling back to host-local time. Fixed to use
+     `timeKeyInOrgTz`.
+   - **A second, independent bug found via the new DST regression test:**
+     `localToUtcIso` (both `functions/dateUtils.js` and `src/utils/dateUtils.js`) used a
+     single-pass offset lookup that reads the target zone's AEST/AEDT offset at a
+     *naive* UTC stand-in for the wall-clock time being converted — within a few hours
+     of a DST transition, that stand-in instant can land on the other side of the
+     transition from the real target instant, picking the wrong offset and silently
+     shifting the result by an hour (reproduced: requesting Sydney "2026-10-03 20:00",
+     the evening before Sydney's 2026 DST start, round-tripped to "19:00"). Fixed with a
+     two-pass fixed-point offset resolution (re-reads the offset at the first pass's
+     result) in both copies.
+   - `BookingModal.jsx`'s Hijri-basis Gregorian-equivalent preview also built an
+     un-zoned `"YYYY-MM-DDT12:00:00"` string (host-local interpretation risk at extreme
+     UTC offsets); now built via `localToUtcIso(gregorianDate, '12:00')` instead.
+   - **New tests:** `functions/dateUtils.test.js` — AEST-only, AEDT-only, and
+     DST-transition-straddling cases for `localToUtcIso`/`toOrgTimeParts`, plus the
+     host-timezone-independence case for `toOrgTimeParts`. (The client's
+     `src/utils/dateUtils.js` ports the identical algorithm but can't be unit-tested
+     directly via `node --test` — it imports Vite's `import.meta.env` — so this suite is
+     the regression source of truth for both.)
+   - **Verified, no change needed:** the admin edit/review conflict-check path
+     (`updateBooking`'s `findOverlaps` call) already resolves and applies the venue's
+     post-booking `bufferHours` consistently with `submitBooking`/`decideBooking`/the
+     REST endpoints (shared `rangesOverlapBuffered`, strict `<`/`>` boundary — a
+     candidate starting exactly at the buffered end is correctly **not** flagged as a
+     conflict), so an admin rescheduling a conflicted pending booking to a
+     non-overlapping slot already gets an accurate, non-blocking conflict flag.
+3. **Venues and Departments admin tabs gained inline Edit**, not just add/delete/active
+   toggle — `src/pages/AdminPage.jsx`'s `VenuesTab`/`DepartmentsTab` now have an "Edit"
+   button per row that switches that row to editable inputs (name, capacity, buffer
+   hours, opening hours for venues; name, colour for departments) with Save/Cancel,
+   writing through the existing `updateVenue`/`updateDepartment` in
+   `src/services/directoryService.js` (already present, already admin-only per
+   `firestore.rules`). IDs/other fields are preserved; no new Firestore audit-log entries
+   are written for these edits (the existing convention only audits Cloud-Function-driven
+   writes to `events`, not direct client writes to `venues`/`departments`).
+4. **Confirmed/approved bookings' visibility is now clearly reachable in the Admin
+   area**, not only via the public Calendar/Bookings tabs: a new "Confirmed bookings"
+   admin tab (`ConfirmedTab` in `AdminPage.jsx`) lists every confirmed booking with its
+   current visibility and an "Edit" button opening the same `BookingModal`, whose
+   Visibility selector was already general-purpose and admin-editable regardless of
+   status (verified: `updateBooking`'s `visibility` patch and the selector's `disabled`
+   condition only restrict *non-admin* edits of an existing booking). The public
+   endpoint/iCal export are unchanged and still gate strictly on
+   `status === 'confirmed' && visibility === 'public'`.
+5. **Admin sign-in screen redesigned** (user said the prior polish pass "still looks
+   bad") — a split hero/form layout (`src/pages/AdminPage.jsx`'s `LoginCard` + new
+   `.login-shell`/`.login-hero`/`.login-form-area`/`.field`/`.spinner` CSS): a
+   brand-gradient header band with icon/title, a distinct form section with
+   labelled fields, visible focus rings, an inline spinner + "Signing in…" label as an
+   explicit loading state, a styled error banner, and mobile-responsive padding. No
+   change to the `login`/`logout` calls or field semantics/`required` attributes.
+6. **Booking dialog close button replaced** with an accessible "✕" icon button
+   top-right of `BookingModal.jsx` (`aria-label="Close dialog"`, `dlg-close` styling,
+   keyboard-focusable). Escape-to-close and click-outside-the-dialog-to-close were not
+   previously implemented; both were added alongside the button (a `keydown` listener
+   while open, and an `onClick` on the overlay with `stopPropagation` on the dialog
+   itself) since "preserve escape/other close behaviours" implied they were expected to
+   exist.
+
+**Checks run:** `node --test` in `functions/` — 16/16 pass (11 pre-existing + 5 new
+`dateUtils.test.js` cases, including the DST-edge-case test that caught the
+`localToUtcIso` bug above before it shipped); `node --test "src/utils/*.test.js"` — 6/6
+pass (unchanged); `npm run build` (frontend) — clean.
+
+**Docs:** this entry. No data-model/API shape changes in this batch (visibility/buffer
+rules were already documented; the timezone fix and edit-UI additions don't change the
+wire format).
+
+**Git/deploy outcome:** see the dated entry immediately below for the exact commit hash,
+push result, and deploy result.
+
+
+
 ## Batch: Hijri source-date anchoring, calendar primary-toggle, visibility control, submit-lock, sign-in polish
 
 **Requested by user, across several follow-up messages (implemented under the no-deploy

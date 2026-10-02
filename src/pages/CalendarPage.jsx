@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { HIJRI_MONTHS } from '../services/hijriService.js';
-import { dateKeyInOrgTz } from '../utils/dateUtils.js';
+import { dateKeyInOrgTz, timeKeyInOrgTz } from '../utils/dateUtils.js';
 import {
   DOW,
   buildGregorianMonthGrid,
@@ -164,7 +164,7 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
                   style={{ background: deptColor(e.departmentId) }}
                   title={`${e.title} · ${e.venueName || e.venueId}${e.hasConflict ? ' · overlaps another booking' : ''}`}
                   onClick={(ev) => { ev.stopPropagation(); setModal({ editing: e }); }}>
-                  {e.dateBasis === 'hijri' ? '☾ ' : ''}{new Date(e.startAt).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })} {e.title}
+                  {e.dateBasis === 'hijri' ? '☾ ' : ''}{timeKeyInOrgTz(e.startAt)} {e.title}
                 </button>
               ))}
               {list.length > 3 && <div className="more">+{list.length - 3} more</div>}

@@ -25,7 +25,7 @@ firebase functions:secrets:set SMTP_HOST
 firebase functions:secrets:set SMTP_PORT   # e.g. 587, or 465 for implicit TLS
 firebase functions:secrets:set SMTP_USER
 firebase functions:secrets:set SMTP_PASS
-firebase functions:secrets:set EMAIL_FROM  # e.g. "Community Hub Calendar <noreply@yourdomain>"
+firebase functions:secrets:set EMAIL_FROM  # e.g. "MWA Central Calendar <noreply@yourdomain>"
 ```
 
 Then redeploy functions:

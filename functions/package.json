@@ -1,6 +1,6 @@
 {
-  "name": "community-hub-calendar-functions",
-  "description": "Cloud Functions for the Community Hub Calendar (conflict checks, approvals, public API, iCal feed, email seam).",
+  "name": "mwa-central-calendar-functions",
+  "description": "Cloud Functions for MWA Central Calendar (conflict checks, approvals, public API, iCal feed, email seam).",
   "engines": { "node": "22" },
   "main": "index.js",
   "scripts": {

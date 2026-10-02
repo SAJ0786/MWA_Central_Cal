@@ -20,17 +20,20 @@ function escapeIcs(text = '') {
   return String(text).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
 }
 
-export function buildIcs(events, { calendarName = 'Community Hub Calendar' } = {}) {
+export function buildIcs(events, { calendarName = 'MWA Central Calendar' } = {}) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Community Hub Calendar//EN',
+    'PRODID:-//MWA Central Calendar//EN',
     `X-WR-CALNAME:${escapeIcs(calendarName)}`,
     'CALSCALE:GREGORIAN'
   ];
   for (const e of events) {
     lines.push(
       'BEGIN:VEVENT',
+      // UID domain intentionally kept stable across the app rename — changing
+      // it would make subscribed calendar apps treat every existing event as
+      // brand new (breaking update/dedup matching for anyone already synced).
       `UID:${e.id}@community-hub-calendar`,
       `DTSTAMP:${toIcsDate(e.updatedAt || e.createdAt || e.startAt)}`,
       `DTSTART:${toIcsDate(e.startAt)}`,

@@ -362,11 +362,14 @@ exports.getPublicEvents = onCall({ cors: true }, async (request) => {
 exports.icalFeed = onRequest({ cors: true }, async (req, res) => {
   try {
     const snap = await db.collection('events').where('visibility', '==', 'public').where('status', '==', 'confirmed').get();
-    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Community Hub Calendar//EN', 'CALSCALE:GREGORIAN'];
+    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//MWA Central Calendar//EN', 'CALSCALE:GREGORIAN'];
     snap.forEach(doc => {
       const e = doc.data();
       lines.push(
         'BEGIN:VEVENT',
+        // UID domain intentionally kept stable across the app rename — see
+        // src/services/exportService.js for why (avoids breaking subscribers'
+        // existing event dedup/update matching).
         `UID:${doc.id}@community-hub-calendar`,
         `DTSTAMP:${toIcsDate(e.updatedAt || e.createdAt || e.startAt)}`,
         `DTSTART:${toIcsDate(e.startAt)}`,

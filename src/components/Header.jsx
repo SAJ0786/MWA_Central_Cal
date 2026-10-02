@@ -4,7 +4,7 @@ export default function Header({ tab, setTab }) {
   const { user, isAdmin, logout } = useAuth();
   return (
     <header>
-      <h1>📅 Community Hub Calendar</h1>
+      <h1>📅 MWA Central Calendar</h1>
       <nav>
         <button className={`tab ${tab === 'calendar' ? 'on' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
         <button className={`tab ${tab === 'bookings' ? 'on' : ''}`} onClick={() => setTab('bookings')}>Bookings</button>
