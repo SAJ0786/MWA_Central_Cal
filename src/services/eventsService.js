@@ -47,3 +47,24 @@ export async function fetchPublicEvents({ from, to } = {}) {
   const res = await fn({ from, to });
   return res.data?.events || [];
 }
+
+/** Admin edit; `scope` ('single' | 'future' | 'all') applies shared fields/time-of-day across a recurring series. */
+export async function updateBookingScoped(eventId, patch, scope = 'single') {
+  const fn = httpsCallable(functions, 'updateBooking');
+  const res = await fn({ eventId, patch, scope });
+  return res.data;
+}
+
+/** Admin-only: create a recurring series (expanded + conflict-flagged server-side). */
+export async function createRecurringBooking(payload) {
+  const fn = httpsCallable(functions, 'createRecurringBooking');
+  const res = await fn(payload);
+  return res.data;
+}
+
+/** Admin-only: delete one occurrence, this & future, or the whole series. */
+export async function deleteBooking(eventId, scope = 'single') {
+  const fn = httpsCallable(functions, 'deleteBooking');
+  const res = await fn({ eventId, scope });
+  return res.data;
+}

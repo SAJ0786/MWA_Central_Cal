@@ -126,3 +126,7 @@ th { color: var(--mut); font-weight: 500; }
   .login-hero { padding: 22px 20px 18px; }
   .login-form-area { padding: 20px 20px 18px; }
 }
+.ev.priv { background: #475467; }
+.ev.pend { background: repeating-linear-gradient(45deg, #98a2b3, #98a2b3 6px, #b6bdc9 6px, #b6bdc9 12px); color: #1d2939; outline: 1px dashed #475467; opacity: 1; }
+.dlg-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.dlg-fields:disabled input, .dlg-fields:disabled select, .dlg-fields:disabled textarea { background: var(--card); color: var(--fg); opacity: .9; }

@@ -19,9 +19,14 @@ the API key) in the `Authorization: Bearer <idToken>` header, for a user whose
 Query params: `from`, `to` (ISO date/time, inclusive bounds on `startAt`), `venue`
 (venueId), `department` (departmentId), `status` (admin only — ignored for guests).
 
-- **Unauthenticated / non-admin callers** always get only `visibility=public` AND
-  `status=confirmed` events, with `contactName`/`contactEmail`/`contactPhone`/`notes`
-  stripped and a resolved `hijri` object added:
+- **Unauthenticated / non-admin callers** get a **sanitized projection** (never the raw
+  document). Only `confirmed` and `pending` bookings are returned (`rejected`/`cancelled`
+  are hidden). `confirmed` + `visibility=public` events are returned in full minus
+  `contactName`/`contactEmail`/`contactPhone`/`notes`; **private** confirmed events are
+  masked (`title: "Private"`) and **pending** events are masked (`title: "Unconfirmed
+  booking"`) regardless of visibility. A masked item contains only `id`, `status`,
+  `startAt`, `endAt`, `venueId`, `venueName`, `dateBasis`, `hijri`, `title`, `masked: true`
+  — no department, contact, notes, visibility or conflict data. Full example:
   ```json
   { "events": [{
       "id": "evt_123", "title": "Diwali Community Night",
@@ -32,6 +37,7 @@ Query params: `from`, `to` (ISO date/time, inclusive bounds on `startAt`), `venu
       "hijri": { "day": 1, "month": 5, "monthName": "Jumada al-Awwal", "year": 1448 }
   }] }
   ```
+  A masked item looks like `{ "id": "evt_9", "status": "pending", "title": "Unconfirmed booking", "masked": true, "venueId": "main-hall", "venueName": "Main Hall", "startAt": "...", "endAt": "...", "hijri": { ... } }`.
 - **Authenticated admins** get the full document for every matching event (any status/
   visibility), including contact details and `hasConflict`/`conflictWith`.
 
@@ -49,8 +55,8 @@ optional `visibility` (`"public"`/`"private"`).
   see docs/DATA_MODEL.md); the buffer never blocks the incoming submission itself.
 - `visibility` defaults to `public` for an unauthenticated (public) submission and to
   `private` for an authenticated admin submission if not explicitly given — see
-  docs/DATA_MODEL.md's visibility decision. A pending booking is never exposed to public
-  reads regardless of this flag.
+  docs/DATA_MODEL.md's visibility decision. A pending booking is shown publicly only as a masked
+  "Unconfirmed booking" item regardless of this flag.
 - `400` for missing fields / invalid time range. `404` if `venueId`/`departmentId` don't
   exist.
 
@@ -68,6 +74,23 @@ Admin only. General edit of a booking's core fields, including `visibility`
 (`"public"`/`"private"`) — an admin may change visibility at any time, independent of
 status. Every visibility change is recorded in the audit log.
 
+## Callables (admin only, not exposed under `/v1`)
+
+- `createRecurringBooking` — body: `title`, `departmentId`, `venueId`, `contactName`,
+  `contactEmail`, optional `contactPhone`/`notes`, `status` (`confirmed` default | `pending`),
+  `visibility` (default `private`), and `recurrence`:
+  `{ basis: "gregorian"|"hijri", startDate | hijriStart{day,month,year}, startTime, endTime,
+  frequency: "day"|"week"|"month"|"year", repeatEvery (1-100), endMode: "count"|"date",
+  count, endDate }`. Expanded server-side in Australia/Sydney civil time (DST-safe). Limits:
+  at most 370 occurrences, a 1-year horizon (yearly: 5 occurrences). Overlaps (venue
+  `bufferHours` aware) are flagged per occurrence, never blocked. Returns
+  `{ seriesId, created, conflicts, status }`.
+- `updateBooking` accepts `scope`: `single` (default) | `future` | `all`. For `future`/`all`
+  shared fields and the time of day are applied to each occurrence (each keeps its own date);
+  changing the date is only allowed for `single`.
+- `deleteBooking` `{ eventId, scope }` — hard delete of one occurrence, this and following, or
+  the whole series; one audit entry per deleted booking.
+
 ## `GET /v1/availability?venue=<id>&date=<YYYY-MM-DD>`
 
 Public. Returns the busy windows (pending + confirmed bookings) for that venue on that
@@ -80,8 +103,9 @@ informational display feed, not the conflict-detection rule used by `hasConflict
 
 ## `GET /ical`
 
-Public live iCal feed (`text/calendar`) of all `public` + `confirmed` events — subscribe
-to it from Google Calendar/Outlook. Served by the `icalFeed` function, not under `/v1`.
+Public live iCal feed (`text/calendar`) of confirmed events (public ones in full, private ones as
+`Private`) and pending ones as `Unconfirmed booking` with `STATUS:TENTATIVE` — no contact,
+notes or department data. Subscribe to it from Google Calendar/Outlook. Served by the `icalFeed` function, not under `/v1`.
 
 ## Known limitations (MVP)
 

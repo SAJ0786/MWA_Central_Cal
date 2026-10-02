@@ -32,7 +32,7 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
 
   const shown = useMemo(() => events.filter(e =>
     e.status !== 'cancelled' &&
-    (!deptFilter.size || deptFilter.has(e.departmentId)) &&
+    (e.masked || !deptFilter.size || deptFilter.has(e.departmentId)) &&
     (!venueFilter || e.venueId === venueFilter)
   ), [events, deptFilter, venueFilter]);
 
@@ -110,7 +110,7 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
         <div className="stat"><b>{monthEvents.length}</b>events this month</div>
         <div className="stat"><b>{monthEvents.filter(e => e.status === 'confirmed').length}</b>confirmed</div>
         <div className="stat"><b>{events.filter(e => e.status === 'pending').length}</b>awaiting approval</div>
-        <div className="stat"><b>{events.filter(e => e.hasConflict && e.status === 'pending').length}</b>pending with conflicts</div>
+        {isAdmin && <div className="stat"><b>{events.filter(e => e.hasConflict && e.status === 'pending').length}</b>pending with conflicts</div>}
       </div>
 
       <div className="bar">
@@ -160,8 +160,8 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
               <span className="n">{mainNumber}</span>
               {subLabel ? <span className="h-sub">{subLabel}</span> : null}
               {list.slice(0, 3).map(e => (
-                <button key={e.id} className={`ev ${e.status === 'pending' ? 'pend' : ''} ${e.hasConflict ? 'conflict' : ''}`}
-                  style={{ background: deptColor(e.departmentId) }}
+                <button key={e.id} className={`ev ${e.status === 'pending' ? 'pend' : ''} ${e.masked && e.status !== 'pending' ? 'priv' : ''} ${e.hasConflict ? 'conflict' : ''}`}
+                  style={e.masked ? undefined : { background: deptColor(e.departmentId) }}
                   title={`${e.title} · ${e.venueName || e.venueId}${e.hasConflict ? ' · overlaps another booking' : ''}`}
                   onClick={(ev) => { ev.stopPropagation(); setModal({ editing: e }); }}>
                   {e.dateBasis === 'hijri' ? '☾ ' : ''}{timeKeyInOrgTz(e.startAt)} {e.title}

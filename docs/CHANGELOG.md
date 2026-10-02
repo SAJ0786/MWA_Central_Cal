@@ -225,3 +225,37 @@ yet regardless.)
 `functions/`), `node --test` in `functions/` (7/7 pass), `npm run build` (frontend, clean
 build). No Firebase deploy was performed for this change, per the active no-deploy
 directive above.
+
+## Batch: read-only booking detail, masked public calendar, recurring bookings, delete
+
+**Requested by user** (implemented and tested; push/deploy authorised afterwards):
+
+1. **Read-only detail.** Opening a booking from the calendar shows all fields disabled for
+   everyone; admins get an **Edit** button (then Save/Cancel). Non-admins have no Edit.
+2. **Private bookings visible publicly, masked**: title "Private"; general users see only
+   date/time, venue and Hijri date. Admins see everything and can toggle visibility.
+3. **Pending bookings visible publicly as "Unconfirmed booking"** (visually distinct). General
+   users see date/time/venue only. Admins see full details with Edit, Approve, Reject, Cancel
+   and the new **Delete**. This **intentionally supersedes** the earlier rule that
+   pending/private bookings are hidden from public feeds: `getPublicEvents`, `GET /v1/events`
+   and the iCal feed now return a whitelist projection (no contact, notes, department,
+   visibility or conflict details). Raw event docs remain admin-only in `firestore.rules`.
+   Rejected/cancelled stay hidden. iCal uses masked titles; pending is `STATUS:TENTATIVE`.
+4. **Recurring bookings** (admin only: `createRecurringBooking`, scoped `updateBooking`,
+   `deleteBooking`), modelled on `SAJ0786/CommunityEvents-Native` (day/week/month/year,
+   every N, end by count or date, scopes this / this and following / all, Hijri-based
+   recurrence, 1-year horizon, 370-occurrence cap, yearly max 5).
+
+**Design decisions / assumptions**
+- Expansion is server-side, Australia/Sydney civil time, DST-safe (`functions/recurrence.js`).
+  Gregorian month steps are computed from the first date (no drift); Hijri month/year steps
+  clamp to the real month length; Hijri-anchored occurrences follow the existing anchoring rule.
+- Admin-created series default to **confirmed + private**; "pending" is selectable.
+- Hijri-based series take a Gregorian end date (no Hijri end date); no client-side preview.
+- Per-occurrence conflicts use the same buffer-hours rule and are flagged, never blocked.
+- Editing several occurrences applies shared fields and time of day only; changing the date is
+  single-occurrence only (otherwise delete and recreate).
+- Delete is a hard delete with an audit entry per booking. Deleting/cancelling does not
+  recompute other bookings' stale `hasConflict` flags (pre-existing behaviour).
+- Recurring create/delete are callables only (not in REST `/v1`).
+- Tests: `functions/recurrence.test.js`, `functions/publicProjection.test.js`.

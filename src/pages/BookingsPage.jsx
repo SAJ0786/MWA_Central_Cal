@@ -27,10 +27,10 @@ export default function BookingsPage({ events, venues, departments, isAdmin, hij
                 </td>
                 <td>{fmtTime(e.startAt)}–{fmtTime(e.endAt)}</td>
                 <td>{e.title}{e.hasConflict && <span className="conflict-badge">overlap</span>}</td>
-                <td>{e.departmentName || departments.find(d => d.id === e.departmentId)?.name || e.departmentId}</td>
+                <td>{e.masked ? '—' : e.departmentName || departments.find(d => d.id === e.departmentId)?.name || e.departmentId}</td>
                 <td>{e.venueName || venues.find(v => v.id === e.venueId)?.name || e.venueId}</td>
                 <td><span className={`tag st-${e.status}`}>{e.status}</span></td>
-                <td>{e.visibility || 'private'}</td>
+                <td>{e.masked ? '—' : (e.visibility || 'private')}</td>
                 <td><button className="btn" onClick={() => setModal({ editing: e })}>{isAdmin ? 'Review' : 'View'}</button></td>
               </tr>
             ))}

@@ -29,18 +29,27 @@ always renders them in the organisation timezone, `Australia/Sydney`.
 
 ### Visibility decision
 
-A pending/unconfirmed booking is **never** exposed to public views or feeds regardless of
-its `visibility` flag — `getPublicEvents`, `GET /v1/events` (unauthenticated), and the iCal
-feed all gate on `status === 'confirmed'` first. This makes it safe for `visibility` itself
-to default differently by submitter: public (unauthenticated) booking requests default to
-`visibility: 'public'` (since privacy is enforced by the status gate, not this flag, while
-pending); an admin creating a booking on someone's behalf defaults to `visibility: 'private'`
+Raw `events` documents are admin-only (Firestore rules); the public only ever sees a
+**sanitized projection** (`functions/publicProjection.js`, a whitelist) via `getPublicEvents`,
+`GET /v1/events` (unauthenticated) and the iCal feed: confirmed+public → full (no contact/notes);
+confirmed+private → masked, title "Private"; pending → masked, title "Unconfirmed booking"
+(regardless of `visibility`); rejected/cancelled → hidden. Masked items expose only id, status,
+start/end, venue, Hijri date and the masked title. Public (unauthenticated) booking requests
+default to `visibility: 'public'`; an admin creating a booking on someone's behalf defaults to `visibility: 'private'`
 and may explicitly choose either in the booking form. An admin can change a booking's
 visibility at any time afterwards — via `updateBooking` (general edit) or as part of
 `decideBooking` (confirm/reject/cancel) — and every visibility change is recorded in the
-audit log. Private hire details are therefore never visible publicly regardless of this
-flag's value while a booking is pending, and an admin always has the final, explicit say
-over what's shown once it's confirmed.
+audit log. Private hire details are therefore never visible publicly, and an admin always has the
+final, explicit say over what is shown in full once it is confirmed.
+
+### Recurring series fields
+
+Occurrences of a recurring booking are ordinary `events` documents that additionally carry
+`seriesId`, `seriesIndex` (1-based), `seriesCount` and a `recurrence` summary
+(`basis`, `frequency`, `repeatEvery`, `endMode`, `count`/`endDate`, `startTime`, `endTime`).
+Hijri-based series keep `dateBasis: 'hijri'` with a per-occurrence `hijriDate`, so the
+moon-sighting adjustment trigger re-resolves each occurrence. Audit entries with
+`entityType: 'series'` (`series_created`, `series_updated`) summarise bulk operations.
 
 ## `venues`
 

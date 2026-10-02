@@ -12,6 +12,10 @@ const { adjustedGregorianToIslamic, HIJRI_MONTHS } = require('./hijriService');
 const { sendMail, emailSecrets } = require('./mailer');
 const { resolveBufferHours, rangesOverlap, rangesOverlapBuffered } = require('./conflictUtils');
 const { resolveBookingDates } = require('./hijriRecompute');
+const { projectPublicEvent } = require('./publicProjection');
+const { generateOccurrences, RecurrenceError } = require('./recurrence');
+const { normalizeScope, selectSeriesTargets, retimeOccurrence } = require('./seriesScope');
+const { toOrgTimeParts } = require('./dateUtils');
 
 initializeApp();
 const db = getFirestore();
@@ -80,6 +84,30 @@ async function findOverlaps(venueId, startAt, endAt, excludeId, tx, bufferHours)
   return overlaps;
 }
 
+/** Buffer-aware overlap check for many candidate ranges at one venue with a single read.
+ * Same interval semantics as findOverlaps (existing booking occupies [start, end + buffer]).
+ * `excludeIds` are docs ignored as "existing" (e.g. the series being edited). */
+async function bulkOverlaps(venueId, items, excludeIds, bufferHours) {
+  const snap = await db.collection('events').where('venueId', '==', venueId).where('status', 'in', ACTIVE_FOR_CONFLICTS).get();
+  const skip = new Set(excludeIds || []);
+  const existing = snap.docs.filter(d => !skip.has(d.id)).map(d => ({ id: d.id, ...d.data() }));
+  const result = new Map();
+  for (const item of items) {
+    result.set(item.id, existing
+      .filter(o => rangesOverlapBuffered(item.startAt, item.endAt, o.startAt, o.endAt, bufferHours))
+      .map(o => o.id));
+  }
+  return result;
+}
+
+async function commitInChunks(writes, size = 400) {
+  for (let i = 0; i < writes.length; i += size) {
+    const batch = db.batch();
+    for (const w of writes.slice(i, i + size)) w(batch);
+    await batch.commit();
+  }
+}
+
 async function writeAudit({ entityType, entityId, action, userId, userEmail, note, diff }) {
   await db.collection('auditLog').add({
     entityType, entityId, action,
@@ -117,24 +145,13 @@ function validateBookingPayload(data) {
   }
 }
 
+// Public projection (see publicProjection.js): confirmed+public in full; confirmed
+// private and pending masked; everything else (rejected/cancelled) dropped (null).
 function sanitizePublicEvent(d, id, overrides) {
-  const dateKey = dateKeyOf(d.startAt);
-  return {
-    id,
-    title: d.title,
-    departmentId: d.departmentId,
-    departmentName: d.departmentName || null,
-    venueId: d.venueId,
-    venueName: d.venueName || null,
-    startAt: d.startAt,
-    endAt: d.endAt,
-    status: d.status,
-    visibility: d.visibility,
-    dateBasis: d.dateBasis || 'gregorian',
-    hijri: hijriInfoFor(dateKey, overrides)
-  };
+  return projectPublicEvent(d, id, hijriInfoFor(dateKeyOf(d.startAt), overrides));
 }
 
+const PUBLIC_STATUSES = ['pending', 'confirmed'];
 // ── Callable: public booking submission ─────────────────────────────────────
 exports.submitBooking = onCall({ cors: true, secrets: emailSecrets }, async (request) => {
   const data = request.data || {};
@@ -152,9 +169,8 @@ exports.submitBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
   const resolvedDates = resolveBookingDates(data, overrides);
 
   // Visibility rule: public submitters default to 'public' (safe because
-  // pending/unconfirmed bookings are never exposed regardless of visibility —
-  // see sanitizePublicEvent/getPublicEvents/icalFeed, all gated on
-  // status === 'confirmed'). A signed-in admin creating a booking on someone's
+  // pending bookings only appear publicly as masked items regardless of visibility —
+  // see publicProjection.js). A signed-in admin creating a booking on someone's
   // behalf may explicitly choose public/private; if they don't specify one,
   // it defaults to private (the safer choice for admin-entered bookings).
   const submitterIsAdmin = await isSubmitterAdmin(request.auth);
@@ -278,6 +294,7 @@ exports.decideBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
 exports.updateBooking = onCall({ cors: true }, async (request) => {
   const admin = await requireAdmin(request.auth);
   const { eventId, patch } = request.data || {};
+  const scope = normalizeScope((request.data || {}).scope);
   if (!eventId || !patch) throw new HttpsError('invalid-argument', 'eventId and patch are required.');
 
   const ref = db.collection('events').doc(eventId);
@@ -322,7 +339,8 @@ exports.updateBooking = onCall({ cors: true }, async (request) => {
   if (before.dateBasis === 'hijri' && before.hijriDate) {
     const overrides = await getHijriOverrides();
     const resolvedBefore = resolveBookingDates(before, overrides);
-    if (update.startAt !== resolvedBefore.startAt || update.endAt !== resolvedBefore.endAt) {
+    // Compare civil dates only: a time-of-day edit keeps the Hijri anchor (the resolver preserves time-of-day).
+    if (dateKeyOf(update.startAt) !== dateKeyOf(resolvedBefore.startAt) || dateKeyOf(update.endAt) !== dateKeyOf(resolvedBefore.endAt)) {
       update.dateBasis = 'gregorian';
       update.hijriDate = null;
     }
@@ -334,7 +352,53 @@ exports.updateBooking = onCall({ cors: true }, async (request) => {
     update.conflictWith = overlaps.map(o => o.id);
   }
 
+  // Scoped edits of a recurring series ('future' / 'all'): shared fields and the
+  // time-of-day are applied to every targeted occurrence, each keeping its own date.
+  // Moving the date is only allowed for a single occurrence.
+  let seriesTargets = [];
+  if (scope !== 'single' && before.seriesId) {
+    if (dateKeyOf(update.startAt) !== dateKeyOf(before.startAt)) {
+      throw new HttpsError('invalid-argument', 'Dates can only be changed for a single occurrence. Choose "This occurrence only", or delete and recreate the series.');
+    }
+    const seriesSnap = await db.collection('events').where('seriesId', '==', before.seriesId).get();
+    const docs = seriesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    seriesTargets = selectSeriesTargets(docs, { id: eventId, ...before }, scope).filter(t => t.id !== eventId);
+  }
+
   await ref.update(update);
+
+  let seriesUpdated = 0;
+  if (seriesTargets.length) {
+    const shared = {};
+    for (const k of ['title', 'departmentId', 'departmentName', 'venueId', 'venueName', 'contactName', 'contactEmail', 'contactPhone', 'notes', 'visibility']) {
+      if (update[k] !== undefined) shared[k] = update[k];
+    }
+    const newStart = toOrgTimeParts(update.startAt).timeStr;
+    const newEnd = toOrgTimeParts(update.endAt).timeStr;
+    const timeChanged = newStart !== toOrgTimeParts(before.startAt).timeStr || newEnd !== toOrgTimeParts(before.endAt).timeStr;
+    const retimed = seriesTargets.map(t => {
+      const times = timeChanged ? retimeOccurrence(t, newStart, newEnd) : { startAt: t.startAt, endAt: t.endAt };
+      return { id: t.id, ...times };
+    });
+    const venueSnap = await db.collection('venues').doc(update.venueId).get();
+    const overlapMap = await bulkOverlaps(update.venueId, retimed, [eventId, ...retimed.map(r => r.id)], resolveBufferHours(venueSnap.exists ? venueSnap.data() : null));
+    let batch = db.batch();
+    let ops = 0;
+    for (const r of retimed) {
+      const ids = overlapMap.get(r.id) || [];
+      const patchDoc = { ...shared, ...(timeChanged ? { startAt: r.startAt, endAt: r.endAt } : {}), hasConflict: ids.length > 0, conflictWith: ids, updatedAt: FieldValue.serverTimestamp() };
+      batch.update(db.collection('events').doc(r.id), patchDoc);
+      ops += 1; seriesUpdated += 1;
+      if (ops >= 400) { await batch.commit(); batch = db.batch(); ops = 0; }
+    }
+    if (ops) await batch.commit();
+    await writeAudit({
+      entityType: 'series', entityId: before.seriesId, action: 'series_updated',
+      userId: admin.uid, userEmail: admin.email,
+      note: `Scope "${scope}": applied edit to ${seriesUpdated + 1} occurrence(s) (anchor ${eventId}).`
+    });
+  }
+
   await writeAudit({
     entityType: 'event', entityId: eventId, action: 'updated',
     userId: admin.uid, userEmail: admin.email,
@@ -343,16 +407,118 @@ exports.updateBooking = onCall({ cors: true }, async (request) => {
       : null
   });
 
-  return { id: eventId, hasConflict: update.hasConflict ?? before.hasConflict };
+  return { id: eventId, hasConflict: update.hasConflict ?? before.hasConflict, seriesUpdated };
 });
 
-// ── Callable: public read of sanitized, public+confirmed events ────────────
+// ── Callable: admin-only recurring booking creation ─────────────────────────
+// Expands the rule server-side (recurrence.js: Sydney civil time, DST-safe, Hijri-anchored),
+// flags (never blocks) per-occurrence venue overlaps using the venue buffer, and writes
+// every occurrence with a shared seriesId. Admin-created: defaults to confirmed + private.
+exports.createRecurringBooking = onCall({ cors: true }, async (request) => {
+  const admin = await requireAdmin(request.auth);
+  const data = request.data || {};
+  for (const f of ['title', 'departmentId', 'venueId', 'contactName', 'contactEmail']) {
+    if (!data[f]) throw new HttpsError('invalid-argument', `Missing required field: ${f}`);
+  }
+  const venue = await getActiveDoc('venues', data.venueId, 'Venue');
+  const department = await getActiveDoc('departments', data.departmentId, 'Department');
+  const overrides = await getHijriOverrides();
+
+  let occurrences;
+  try {
+    occurrences = generateOccurrences(data.recurrence, overrides);
+  } catch (err) {
+    if (err instanceof RecurrenceError) throw new HttpsError('invalid-argument', err.message);
+    throw err;
+  }
+
+  const status = data.status === 'pending' ? 'pending' : 'confirmed';
+  const visibility = sanitizeVisibility(data.visibility) || 'private';
+  const rule = data.recurrence;
+  const seriesId = db.collection('events').doc().id;
+  const recurrence = {
+    basis: rule.basis === 'hijri' ? 'hijri' : 'gregorian',
+    frequency: rule.frequency, repeatEvery: Number(rule.repeatEvery),
+    endMode: rule.endMode,
+    endDate: rule.endMode === 'date' ? rule.endDate : null,
+    count: rule.endMode === 'count' ? Number(rule.count) : null,
+    startTime: rule.startTime, endTime: rule.endTime
+  };
+
+  const refs = occurrences.map(() => db.collection('events').doc());
+  const overlapMap = await bulkOverlaps(
+    data.venueId,
+    occurrences.map((o, i) => ({ id: refs[i].id, startAt: o.startAt, endAt: o.endAt })),
+    [], resolveBufferHours(venue)
+  );
+
+  let conflicts = 0;
+  const writes = occurrences.map((o, i) => {
+    const ids = overlapMap.get(refs[i].id) || [];
+    if (ids.length) conflicts += 1;
+    return (batch) => batch.set(refs[i], {
+      title: String(data.title).slice(0, 200),
+      departmentId: data.departmentId, departmentName: department.name,
+      venueId: data.venueId, venueName: venue.name,
+      startAt: o.startAt, endAt: o.endAt,
+      status, visibility, requestedVisibility: visibility,
+      dateBasis: recurrence.basis, hijriDate: o.hijriDate,
+      contactName: String(data.contactName).slice(0, 200),
+      contactEmail: String(data.contactEmail).slice(0, 200),
+      contactPhone: data.contactPhone ? String(data.contactPhone).slice(0, 50) : '',
+      notes: data.notes ? String(data.notes).slice(0, 2000) : '',
+      hasConflict: ids.length > 0, conflictWith: ids,
+      seriesId, seriesIndex: o.index, seriesCount: occurrences.length, recurrence,
+      createdByUid: admin.uid,
+      createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
+    });
+  });
+  await commitInChunks(writes);
+  await writeAudit({
+    entityType: 'series', entityId: seriesId, action: 'series_created',
+    userId: admin.uid, userEmail: admin.email,
+    note: `Created ${occurrences.length} recurring occurrence(s) as ${status}; ${conflicts} flagged with a venue overlap.`,
+    diff: { recurrence }
+  });
+  return { seriesId, created: occurrences.length, conflicts, status };
+});
+
+// ── Callable: admin-only delete (single occurrence, this & future, or whole series) ──
+exports.deleteBooking = onCall({ cors: true }, async (request) => {
+  const admin = await requireAdmin(request.auth);
+  const { eventId } = request.data || {};
+  const scope = normalizeScope((request.data || {}).scope);
+  if (!eventId) throw new HttpsError('invalid-argument', 'eventId is required.');
+  const snap = await db.collection('events').doc(eventId).get();
+  if (!snap.exists) throw new HttpsError('not-found', 'Booking not found.');
+  const anchor = { id: eventId, ...snap.data() };
+
+  let targets = [anchor];
+  if (scope !== 'single' && anchor.seriesId) {
+    const seriesSnap = await db.collection('events').where('seriesId', '==', anchor.seriesId).get();
+    targets = selectSeriesTargets(seriesSnap.docs.map(d => ({ id: d.id, ...d.data() })), anchor, scope);
+  }
+
+  const writes = [];
+  for (const t of targets) {
+    writes.push((batch) => batch.delete(db.collection('events').doc(t.id)));
+    writes.push((batch) => batch.set(db.collection('auditLog').doc(), {
+      entityType: 'event', entityId: t.id, action: 'deleted',
+      userId: admin.uid, userEmail: admin.email,
+      note: `Deleted "${String(t.title || '').slice(0, 80)}" (${t.startAt}, was ${t.status})${anchor.seriesId ? `, series ${anchor.seriesId}, scope ${scope}` : ''}.`,
+      diff: null, timestamp: new Date().toISOString()
+    }));
+  }
+  await commitInChunks(writes, 400);
+  return { deleted: targets.length, scope };
+});
+
+// ── Callable: public read of sanitized events (confirmed in full if public; private & pending masked) ──
 exports.getPublicEvents = onCall({ cors: true }, async (request) => {
   const { from, to } = request.data || {};
-  let q = db.collection('events').where('visibility', '==', 'public').where('status', '==', 'confirmed');
-  const snap = await q.get();
+  const snap = await db.collection('events').where('status', 'in', PUBLIC_STATUSES).get();
   const overrides = await getHijriOverrides();
-  let events = snap.docs.map(d => sanitizePublicEvent(d.data(), d.id, overrides));
+  let events = snap.docs.map(d => sanitizePublicEvent(d.data(), d.id, overrides)).filter(Boolean);
   if (from) events = events.filter(e => e.startAt >= from);
   if (to) events = events.filter(e => e.startAt <= to);
   return { events };
@@ -361,22 +527,25 @@ exports.getPublicEvents = onCall({ cors: true }, async (request) => {
 // ── Public iCal feed (confirmed + public only) ──────────────────────────────
 exports.icalFeed = onRequest({ cors: true }, async (req, res) => {
   try {
-    const snap = await db.collection('events').where('visibility', '==', 'public').where('status', '==', 'confirmed').get();
+    const snap = await db.collection('events').where('status', 'in', PUBLIC_STATUSES).get();
     const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//MWA Central Calendar//EN', 'CALSCALE:GREGORIAN'];
     snap.forEach(doc => {
-      const e = doc.data();
+      // Masked projection: private/pending items show only time + venue with a masked title.
+      const e = projectPublicEvent(doc.data(), doc.id, null);
+      if (!e) return;
+      const sourceDoc = doc.data();
       lines.push(
         'BEGIN:VEVENT',
         // UID domain intentionally kept stable across the app rename — see
         // src/services/exportService.js for why (avoids breaking subscribers'
         // existing event dedup/update matching).
         `UID:${doc.id}@community-hub-calendar`,
-        `DTSTAMP:${toIcsDate(e.updatedAt || e.createdAt || e.startAt)}`,
+        `DTSTAMP:${toIcsDate(sourceDoc.updatedAt || sourceDoc.createdAt || e.startAt)}`,
         `DTSTART:${toIcsDate(e.startAt)}`,
         `DTEND:${toIcsDate(e.endAt)}`,
         `SUMMARY:${icsEscape(e.title)}`,
         `LOCATION:${icsEscape(e.venueName || '')}`,
-        'STATUS:CONFIRMED',
+        `STATUS:${e.status === 'confirmed' ? 'CONFIRMED' : 'TENTATIVE'}`,
         'END:VEVENT'
       );
     });
@@ -428,8 +597,9 @@ app.get('/v1/events', async (req, res) => {
   const admin = await authenticateAdmin(req);
   let query = db.collection('events');
   if (!admin) {
-    // Guests may only ever see public+confirmed events, regardless of filters.
-    query = query.where('visibility', '==', 'public').where('status', '==', 'confirmed');
+    // Guests only ever receive the sanitized projection (confirmed in full if public,
+    // masked if private; pending masked; rejected/cancelled dropped), regardless of filters.
+    query = query.where('status', 'in', PUBLIC_STATUSES);
   } else if (status) {
     query = query.where('status', '==', status);
   }
@@ -440,7 +610,7 @@ app.get('/v1/events', async (req, res) => {
   const overrides = await getHijriOverrides();
   let events = snap.docs.map(d => admin
     ? { id: d.id, ...d.data(), hijri: hijriInfoFor(dateKeyOf(d.data().startAt), overrides) }
-    : sanitizePublicEvent(d.data(), d.id, overrides));
+    : sanitizePublicEvent(d.data(), d.id, overrides)).filter(Boolean);
   if (from) events = events.filter(e => e.startAt >= from);
   if (to) events = events.filter(e => e.startAt <= to);
   res.json({ events });
@@ -455,7 +625,7 @@ app.post('/v1/events', async (req, res) => {
     const resolvedDates = resolveBookingDates(req.body, overrides);
     const overlaps = await findOverlaps(req.body.venueId, resolvedDates.startAt, resolvedDates.endAt, null, undefined, resolveBufferHours(venue));
     // Same visibility rule as the submitBooking callable: public submissions
-    // default to 'public' (safe — pending bookings stay hidden regardless),
+    // default to 'public' (safe — pending bookings are masked publicly regardless),
     // an authenticated admin caller may explicitly choose, defaulting to
     // 'private' for admin-entered bookings if unspecified.
     const admin = await authenticateAdmin(req);
