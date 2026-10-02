@@ -117,15 +117,18 @@ export default function CalendarPage({ events: rawEvents, venues, departments, i
         {isAdmin && <div className="stat"><b>{events.filter(e => e.hasConflict && e.status === 'pending').length}</b>pending with conflicts</div>}
       </div>
 
-      <div className="bar">
-        <button className="btn" onClick={() => shift(-1)}>‹</button>
-        <strong className={`cal-title ${primary === 'hijri' ? 'dt-h' : 'dt-g'}`} style={{ minWidth: 200, textAlign: 'center' }}>
+      <div className="bar cal-bar">
+        <div className="cal-nav">
+        <button className="btn" aria-label="Previous month" onClick={() => shift(-1)}>‹</button>
+        <strong className={`cal-title ${primary === 'hijri' ? 'dt-h' : 'dt-g'}`} style={{ textAlign: 'center' }}>
           {grid.label}
           {secondaryLabel && <div className={`h-sub ${primary === 'hijri' ? 'dt-g' : 'dt-h'}`}>{secondaryLabel}</div>}
         </strong>
-        <button className="btn" onClick={() => shift(1)}>›</button>
+        <button className="btn" aria-label="Next month" onClick={() => shift(1)}>›</button>
         <button className="btn" onClick={goToday}>Today</button>
+        </div>
         <span className="sp" />
+        <div className="cal-tools">
         <div className="seg" role="group" aria-label="Primary calendar">
           <button type="button" className={`seg-btn ${primary === 'gregorian' ? 'on' : ''}`} onClick={() => setPrimaryCalendar('gregorian')}>Gregorian</button>
           <button type="button" className={`seg-btn ${primary === 'hijri' ? 'on' : ''}`} onClick={() => setPrimaryCalendar('hijri')}>Hijri</button>
@@ -134,10 +137,11 @@ export default function CalendarPage({ events: rawEvents, venues, departments, i
           <option value="">All venues</option>
           {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
         </select>
-        <button className="btn pri" onClick={() => setModal({ editing: null, newOnDate: todayKey })}>+ New booking</button>
-      </div>
+        <button className="btn pri" onClick={() => setModal({ editing: null, newOnDate: todayKey })}>        + New<span className="hide-sm"> booking</span></button>
+                </div>
+              </div>
 
-      <div className="bar">
+              <div className="bar chips">
         {departments.map(d => (
           <button key={d.id} className="chip" onClick={() => toggleDept(d.id)}
             style={{
@@ -155,14 +159,17 @@ export default function CalendarPage({ events: rawEvents, venues, departments, i
           const deptColor = (deptId) => departments.find(d => d.id === deptId)?.colorHex || '#2563eb';
           const mainNumber = primary === 'hijri' ? cell.hijri.day : cell.date.getDate();
           const showMonthName = primary === 'hijri' ? cell.hijri.day === 1 : cell.date.getDate() === 1;
-          const subLabel = primary === 'hijri'
-            ? `${cell.date.getDate()}${showMonthName ? ' ' + cell.date.toLocaleDateString('en-AU', { month: 'short' }) : ''}`
-            : (cell.hijri.year ? `${cell.hijri.day}${showMonthName ? ' ' + (HIJRI_MONTHS.find(m => m.value === cell.hijri.month)?.name || '') : ''}` : '');
+          const subNum = primary === 'hijri' ? cell.date.getDate() : (cell.hijri.year ? cell.hijri.day : '');
+          const subName = !showMonthName ? '' : primary === 'hijri'
+            ? cell.date.toLocaleDateString('en-AU', { month: 'short' })
+            : (HIJRI_MONTHS.find(m => m.value === cell.hijri.month)?.name || '');
+          const subLabel = subNum !== '' ? subNum : null;
           return (
-            <div key={cell.key} className={`cell ${!cell.inMonth ? 'out' : ''}             ${cell.key === todayKey ? 'today' : ''} ${cell.key === selectedKey ? 'selected' : ''}`}
+            <div key={cell.key} className={`cell ${!cell.inMonth ? 'out' : ''} ${cell.key === todayKey ? 'today' : ''} ${cell.key === selectedKey ? 'selected' : ''}`}
                           onClick={() => { setSelectedKey(cell.key); setModal({ editing: null, newOnDate: cell.key }); }}>
                           <div className="cell-head"><span className={`n ${primary === 'hijri' ? 'dt-h' : 'dt-g'}`}>{mainNumber}</span>
-                          {subLabel ? <span className={`h-sub ${primary === 'hijri' ? 'dt-g' : 'dt-h'}`}>{subLabel}</span> : null}</div>
+                          {subLabel ? <span className={`h-sub ${primary === 'hijri' ? 'dt-g' : 'dt-h'}`}>{subLabel}</span> : null}
+                          {subName ? <span className={`mname ${primary === 'hijri' ? 'dt-g' : 'dt-h'}`} title={subName}><span className="mn-full">{subName}</span><span className="mn-short">{subName.slice(0, 3)}</span></span> : null}</div>
               {list.slice(0, 3).map(e => (
                 <button key={e.id} className={`ev ${e.status === 'pending' ? 'pend' : ''} ${e.masked && e.status !== 'pending' ? 'priv' : ''} ${e.hasConflict ? 'conflict' : ''}`}
                   style={e.masked ? undefined : { background: deptColor(e.departmentId) }}

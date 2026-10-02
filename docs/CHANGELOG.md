@@ -307,3 +307,8 @@ button (callable `recomputeAllConflicts`) to repair existing data.
 - Server: venue create/edit now triggers `onVenueChanged` to recompute all stored flags; `recomputeVenueConflicts` covers all venues. Venue admin edit has a "Whole site" checkbox (`coversAllVenues`).
 - Typography: date numbers doubled (Gregorian black, Hijri green), normal weight; only today/selected are bold + underlined; yellow boxed highlight removed; cells resized responsively.
 - Needs deploy (functions + hosting) to take effect.
+
+## Mobile layout overhaul (matches original prototype)
+- Mobile (<=640px) now follows the prototype: compact header (title + status row, tabs), single-row 3-tile stats, toolbar rows `‹ Month ›  Today` / `Gregorian|Hijri  venue  + New`, single horizontally scrollable chips row, 7-column grid with ~98px cells, small event pills. Desktop layout is unchanged (toolbar wrappers use `display: contents`).
+- Cell dates: 15px (Gregorian black, Hijri green; 14/11px under 380px), month-start label shortened to 3 letters ("Rab", "Jum") so rows don't grow; tablet 24/18px; desktop remains doubled. Only today/selected are bold.
+- Safe-area bottom padding, bottom-sheet booking dialogs with sticky X close, inputs 16px (no iOS zoom), Bookings table scrolls horizontally with compact cells. Verified with headless Edge at 360/390/768/1280 px: no horizontal page overflow.
