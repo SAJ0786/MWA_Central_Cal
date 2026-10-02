@@ -1,3 +1,4 @@
+import { withLiveConflicts } from '../utils/conflictUtils.js';
 import { useMemo, useRef, useState } from 'react';
 import { hijriLabel, dateKeyInOrgTz, timeKeyInOrgTz } from '../utils/dateUtils.js';
 import { downloadCsv, downloadIcs } from '../services/exportService.js';
@@ -9,7 +10,8 @@ import BookingModal from '../components/BookingModal.jsx';
 
 const MAX_ROWS = 500;
 
-export default function BookingsPage({ events, venues, departments, isAdmin, hijriOverrides, onSaved }) {
+export default function BookingsPage({ events: rawEvents, venues, departments, isAdmin, hijriOverrides, onSaved }) {
+  const events = useMemo(() => withLiveConflicts(rawEvents, venues, isAdmin), [rawEvents, venues, isAdmin]);
   const [modal, setModal] = useState(null);
   // Optional range filter (no default limit: bookings of any age, e.g. 2+ years back, stay browsable).
   const [from, setFrom] = useState('');

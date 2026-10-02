@@ -163,14 +163,16 @@ function VenuesTab({ venues }) {
     setEditingId(v.id);
     setEditForm({
       name: v.name || '', capacity: v.capacity ?? '',
-      bufferHours: resolveVenueBufferHours(v), openingHours: v.openingHours || ''
+      bufferHours: resolveVenueBufferHours(v), openingHours: v.openingHours || '',
+      coversAllVenues: v.coversAllVenues === true
     });
   }
   function cancelEdit() { setEditingId(null); setEditForm(null); }
   async function saveEdit(id) {
     await updateVenue(id, {
       name: editForm.name, capacity: Number(editForm.capacity) || null,
-      bufferHours: Number(editForm.bufferHours) || 0, openingHours: editForm.openingHours || ''
+      bufferHours: Number(editForm.bufferHours) || 0, openingHours: editForm.openingHours || '',
+      coversAllVenues: !!editForm.coversAllVenues
     });
     cancelEdit();
   }
@@ -187,7 +189,13 @@ function VenuesTab({ venues }) {
         <tbody>
           {venues.map(v => editingId === v.id ? (
             <tr key={v.id}>
-              <td><input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} /></td>
+              <td>
+                <input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontWeight: 400 }}>
+                  <input type="checkbox" style={{ width: 'auto' }} checked={!!editForm.coversAllVenues} onChange={e => setEditForm(f => ({ ...f, coversAllVenues: e.target.checked }))} />
+                  Whole site (conflicts with every venue)
+                </label>
+              </td>
               <td><input type="number" style={{ width: 80 }} value={editForm.capacity} onChange={e => setEditForm(f => ({ ...f, capacity: e.target.value }))} /></td>
               <td><input type="number" step="0.25" min="0" style={{ width: 80 }} value={editForm.bufferHours} onChange={e => setEditForm(f => ({ ...f, bufferHours: e.target.value }))} /> hr</td>
               <td>

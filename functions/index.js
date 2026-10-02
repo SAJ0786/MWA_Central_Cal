@@ -1,4 +1,4 @@
-const { initializeApp } = require('firebase-admin/app');
+﻿const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
@@ -10,7 +10,7 @@ const cors = require('cors');
 
 const { adjustedGregorianToIslamic, HIJRI_MONTHS } = require('./hijriService');
 const { sendMail, emailSecrets } = require('./mailer');
-const { resolveBufferHours, rangesOverlap, rangesOverlapBuffered, rangesConflict, computeConflictMap } = require('./conflictUtils');
+const { resolveBufferHours, rangesOverlap, rangesConflict, computeAllConflicts, isWholeSiteVenue } = require('./conflictUtils');
 const { validateImportRows, MAX_IMPORT_ROWS } = require('./bookingImport');
 const { buildConflictResponse } = require('./conflictResponse');
 const { resolveBookingDates } = require('./hijriRecompute');
@@ -28,7 +28,7 @@ setGlobalOptions({ region: REGION });
 const STATUSES = ['pending', 'confirmed', 'rejected', 'cancelled'];
 const ACTIVE_FOR_CONFLICTS = ['pending', 'confirmed'];
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 async function requireAdmin(auth) {
@@ -39,7 +39,7 @@ async function requireAdmin(auth) {
   return { uid: auth.uid, email: auth.token.email || snap.data()?.email || '' };
 }
 
-/** Non-throwing admin check — used where a submission may come from either a
+/** Non-throwing admin check â€” used where a submission may come from either a
  * signed-in admin (who gets an explicit visibility choice) or the public
  * (whose submissions default to a different visibility). */
 async function isSubmitterAdmin(auth) {
@@ -63,78 +63,79 @@ async function getActiveDoc(collectionName, id, label) {
   return { id: snap.id, ...snap.data() };
 }
 
-/** Find other pending/confirmed bookings at the same venue that overlap, honouring the
- * venue's post-booking buffer on each *existing* booking's end time. Read-only (safe
- * outside or inside a transaction). Pass `bufferHours` if already known (e.g. the venue
- * doc was already fetched); otherwise it's resolved from the venue doc here. */
-async function findOverlaps(venueId, startAt, endAt, excludeId, tx, bufferHours) {
-  let effectiveBufferHours = bufferHours;
-  if (effectiveBufferHours === undefined) {
-    const venueRef = db.collection('venues').doc(venueId);
-    const venueSnap = tx ? await tx.get(venueRef) : await venueRef.get();
-    effectiveBufferHours = resolveBufferHours(venueSnap.exists ? venueSnap.data() : null);
-  }
-
-  const q = db.collection('events')
-    .where('venueId', '==', venueId)
-    .where('status', 'in', ACTIVE_FOR_CONFLICTS);
-  const snap = tx ? await tx.get(q) : await q.get();
-  const overlaps = [];
-  snap.forEach(doc => {
-    if (doc.id === excludeId) return;
-    const d = doc.data();
-    if (rangesConflict({ startAt, endAt }, d, effectiveBufferHours)) {
-      overlaps.push({ id: doc.id, title: d.title, status: d.status, startAt: d.startAt, endAt: d.endAt, departmentName: d.departmentName, contactName: d.contactName, visibility: d.visibility });
-    }
-  });
-  return overlaps;
+/** Load the bookings a candidate at `venueId` can conflict with: same-venue bookings plus bookings at
+ * whole-site venues (or every booking when the candidate itself is a whole-site venue). Each carries its
+ * own venue buffer as _buf. Read-only; safe inside or outside a transaction. */
+async function loadConflictScope(venueId, tx, bufferOverride) {
+  const get = (q) => (tx ? tx.get(q) : q.get());
+  const venueSnap = await get(db.collection('venues'));
+  const venues = venueSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const vById = new Map(venues.map(v => [v.id, v]));
+  const cand = vById.get(venueId);
+  const candBuf = bufferOverride !== undefined ? bufferOverride : resolveBufferHours(cand);
+  const ids = isWholeSiteVenue(cand)
+    ? venues.map(v => v.id)
+    : [venueId, ...venues.filter(isWholeSiteVenue).map(v => v.id)];
+  const snaps = await Promise.all([...new Set(ids)].map(id => get(
+    db.collection('events').where('venueId', '==', id).where('status', 'in', ACTIVE_FOR_CONFLICTS))));
+  const events = [];
+  for (const s of snaps) s.forEach(d => events.push({ id: d.id, ...d.data(), _buf: resolveBufferHours(vById.get(d.data().venueId)) }));
+  return { candBuf, events, vById };
 }
 
-/** Buffer-aware overlap check for many candidate ranges at one venue with a single read.
- * Same interval semantics as findOverlaps (existing booking occupies [start, end + buffer]).
- * `excludeIds` are docs ignored as "existing" (e.g. the series being edited). */
+/** Find other pending/confirmed bookings that conflict with a candidate slot: same venue or a whole-site
+ * venue, symmetric, each booking occupying [start, end + its venue's buffer]. */
+async function findOverlaps(venueId, startAt, endAt, excludeId, tx, bufferHours) {
+  const { candBuf, events, vById } = await loadConflictScope(venueId, tx, bufferHours);
+  const cand = { startAt, endAt, _buf: candBuf };
+  return events
+    .filter(d => d.id !== excludeId && rangesConflict(cand, d, 0))
+    .map(d => ({
+      id: d.id, title: d.title, status: d.status, startAt: d.startAt, endAt: d.endAt,
+      departmentName: d.departmentName, contactName: d.contactName, visibility: d.visibility,
+      venueName: d.venueName || (vById.get(d.venueId) || {}).name || ''
+    }));
+}
+
+/** Same rule for many candidate ranges at one venue with a single read. `excludeIds` are ignored as "existing". */
 async function bulkOverlaps(venueId, items, excludeIds, bufferHours) {
-  const snap = await db.collection('events').where('venueId', '==', venueId).where('status', 'in', ACTIVE_FOR_CONFLICTS).get();
+  const { candBuf, events } = await loadConflictScope(venueId, undefined, bufferHours);
   const skip = new Set(excludeIds || []);
-  const existing = snap.docs.filter(d => !skip.has(d.id)).map(d => ({ id: d.id, ...d.data() }));
+  const existing = events.filter(d => !skip.has(d.id));
   const result = new Map();
   const details = new Map();
   for (const item of items) {
-    result.set(item.id, existing
-      .filter(o => rangesConflict(item, o, bufferHours))
-      .map(o => o.id));
-    details.set(item.id, existing
-      .filter(o => rangesConflict(item, o, bufferHours))
-      .map(o => ({ id: o.id, title: o.title || '', status: o.status, startAt: o.startAt, endAt: o.endAt })));
+    const hits = existing.filter(o => rangesConflict({ ...item, _buf: candBuf }, o, 0));
+    result.set(item.id, hits.map(o => o.id));
+    details.set(item.id, hits.map(o => ({ id: o.id, title: o.title || '', status: o.status, startAt: o.startAt, endAt: o.endAt })));
   }
   result.details = details;
   return result;
 }
 
-/** Recompute the stored hasConflict/conflictWith flags for every active booking at the
- * given venues (symmetric, buffer-aware), writing only the documents whose flags changed.
- * Keeps stale flags from hiding a conflict when a booking is created/moved/confirmed later. */
-async function recomputeVenueConflicts(venueIds) {
-  let changed = 0;
-  for (const venueId of [...new Set(venueIds.filter(Boolean))]) {
-    const venueSnap = await db.collection('venues').doc(venueId).get();
-    const buffer = resolveBufferHours(venueSnap.exists ? venueSnap.data() : null);
-    const snap = await db.collection('events').where('venueId', '==', venueId).where('status', 'in', ACTIVE_FOR_CONFLICTS).get();
-    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const map = computeConflictMap(docs, buffer);
-    const writes = [];
-    for (const d of docs) {
-      const ids = (map.get(d.id) || []).slice().sort();
-      const prev = (d.conflictWith || []).slice().sort();
-      const has = ids.length > 0;
-      if (Boolean(d.hasConflict) !== has || ids.join(',') !== prev.join(',')) {
-        changed += 1;
-        writes.push((batch) => batch.update(db.collection('events').doc(d.id), { hasConflict: has, conflictWith: ids }));
-      }
+/** Recompute stored hasConflict/conflictWith for EVERY active booking (same-venue + whole-site, buffer-aware,
+ * symmetric), writing only documents whose flags changed. The argument is kept for call-site compatibility:
+ * a whole-site booking affects other venues, so the full recompute is the correct scope. */
+async function recomputeVenueConflicts() {
+  const [venueSnap, evSnap] = await Promise.all([
+    db.collection('venues').get(),
+    db.collection('events').where('status', 'in', ACTIVE_FOR_CONFLICTS).get()
+  ]);
+  const venues = venueSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const docs = evSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const map = computeAllConflicts(docs, venues);
+  const writes = [];
+  for (const d of docs) {
+    if (!map.has(d.id)) continue;
+    const ids = map.get(d.id).slice().sort();
+    const prev = (d.conflictWith || []).slice().sort();
+    const has = ids.length > 0;
+    if (Boolean(d.hasConflict) !== has || ids.join(',') !== prev.join(',')) {
+      writes.push((batch) => batch.update(db.collection('events').doc(d.id), { hasConflict: has, conflictWith: ids }));
     }
-    await commitInChunks(writes);
   }
-  return changed;
+  await commitInChunks(writes);
+  return writes.length;
 }
 
 async function commitInChunks(writes, size = 400) {
@@ -189,7 +190,7 @@ function sanitizePublicEvent(d, id, overrides) {
 }
 
 const PUBLIC_STATUSES = ['pending', 'confirmed'];
-// ── Callable: public booking submission ─────────────────────────────────────
+// â”€â”€ Callable: public booking submission â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.submitBooking = onCall({ cors: true, secrets: emailSecrets }, async (request) => {
   const data = request.data || {};
   validateBookingPayload(data);
@@ -206,7 +207,7 @@ exports.submitBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
   const resolvedDates = resolveBookingDates(data, overrides);
 
   // Visibility rule: public submitters default to 'public' (safe because
-  // pending bookings only appear publicly as masked items regardless of visibility —
+  // pending bookings only appear publicly as masked items regardless of visibility â€”
   // see publicProjection.js). A signed-in admin creating a booking on someone's
   // behalf may explicitly choose public/private; if they don't specify one,
   // it defaults to private (the safer choice for admin-entered bookings).
@@ -238,7 +239,7 @@ exports.submitBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
       endAt: resolvedDates.endAt,
       status: 'pending',
       // Pending bookings are always hidden from public views/feeds regardless
-      // of this flag (see the status === 'confirmed' gate above) — this only
+      // of this flag (see the status === 'confirmed' gate above) â€” this only
       // determines what happens once/if the booking is later confirmed.
       visibility,
       requestedVisibility: visibility,
@@ -264,18 +265,18 @@ exports.submitBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
     note: hasConflict ? 'Submitted as pending with a detected venue overlap.' : 'Submitted as pending.'
   });
 
-  // Best-effort notification seam — see functions/mailer.js. Never blocks or
+  // Best-effort notification seam â€” see functions/mailer.js. Never blocks or
   // fails the request if email isn't configured yet.
   await sendMail({
     to: data.contactEmail,
     subject: `Booking request received: ${data.title}`,
-    text: `Thanks — "${data.title}" was submitted as Pending${hasConflict ? ' (it overlaps another booking at this venue; our team will review it)' : ''}. We'll email you once it's reviewed.`
+    text: `Thanks â€” "${data.title}" was submitted as Pending${hasConflict ? ' (it overlaps another booking at this venue; our team will review it)' : ''}. We'll email you once it's reviewed.`
   });
 
   return { id: eventRef.id, hasConflict, status: 'pending' };
 });
 
-// ── Callable: admin confirm/reject/cancel ───────────────────────────────────
+// â”€â”€ Callable: admin confirm/reject/cancel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.decideBooking = onCall({ cors: true, secrets: emailSecrets }, async (request) => {
   const admin = await requireAdmin(request.auth);
   const { eventId, status, visibility, note } = request.data || {};
@@ -330,7 +331,7 @@ exports.decideBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
   return { id: eventId, status, hasConflict };
 });
 
-// ── Callable: admin edit of an existing booking's core fields ───────────────
+// â”€â”€ Callable: admin edit of an existing booking's core fields â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.updateBooking = onCall({ cors: true }, async (request) => {
   const admin = await requireAdmin(request.auth);
   const { eventId, patch } = request.data || {};
@@ -359,7 +360,7 @@ exports.updateBooking = onCall({ cors: true }, async (request) => {
   const nowIso = new Date().toISOString();
 
   // Admins can change a booking's public/private visibility at any point,
-  // independent of its status — not only at confirm/decision time.
+  // independent of its status â€” not only at confirm/decision time.
   const explicitVisibility = sanitizeVisibility(patch.visibility);
   if (explicitVisibility) update.visibility = explicitVisibility;
 
@@ -374,7 +375,7 @@ exports.updateBooking = onCall({ cors: true }, async (request) => {
 
   // Preserve-source-date rule: if this booking was Hijri-sourced and the admin
   // is now setting a startAt/endAt that differs from what its source hijriDate
-  // currently resolves to, that's an explicit manual reschedule — detach it
+  // currently resolves to, that's an explicit manual reschedule â€” detach it
   // from the Hijri anchor (switch to dateBasis 'gregorian', clear hijriDate) so
   // a later moon-sighting adjustment doesn't silently move it again. If the
   // edit didn't touch the date/time, the Hijri anchor is left untouched.
@@ -460,7 +461,7 @@ exports.updateBooking = onCall({ cors: true }, async (request) => {
   return { id: eventId, hasConflict: fresh.exists ? Boolean(fresh.data().hasConflict) : false, seriesUpdated };
 });
 
-// ── Callable: admin-only recurring booking creation ─────────────────────────
+// â”€â”€ Callable: admin-only recurring booking creation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Expands the rule server-side (recurrence.js: Sydney civil time, DST-safe, Hijri-anchored),
 // flags (never blocks) per-occurrence venue overlaps using the venue buffer, and writes
 // every occurrence with a shared seriesId. Admin-created: defaults to confirmed + private.
@@ -487,7 +488,7 @@ async function expandSeries(data) {
   return { venue, department, occurrences, refs, overlapMap };
 }
 
-// ── Callable: admin-only preview of a series (exact count, dates, per-occurrence conflicts) ──
+// â”€â”€ Callable: admin-only preview of a series (exact count, dates, per-occurrence conflicts) â”€â”€
 exports.previewRecurringBooking = onCall({ cors: true }, async (request) => {
   await requireAdmin(request.auth);
   const { occurrences, refs, overlapMap } = await expandSeries(request.data || {});
@@ -554,7 +555,7 @@ exports.createRecurringBooking = onCall({ cors: true }, async (request) => {
   return { seriesId, created: occurrences.length, conflicts, status };
 });
 
-// ── Callable: admin-only delete (single occurrence, this & future, or whole series) ──
+// â”€â”€ Callable: admin-only delete (single occurrence, this & future, or whole series) â”€â”€
 exports.deleteBooking = onCall({ cors: true }, async (request) => {
   const admin = await requireAdmin(request.auth);
   const { eventId } = request.data || {};
@@ -594,7 +595,7 @@ exports.deleteBooking = onCall({ cors: true }, async (request) => {
   return { deleted: targets.length, kept, scope };
 });
 
-// ── Callable: live slot conflict check (public-safe) ───────────────────────
+// â”€â”€ Callable: live slot conflict check (public-safe) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Public callers get only { hasConflict, count }; admins also get the conflicting bookings.
 exports.checkSlotConflicts = onCall({ cors: true }, async (request) => {
   const { venueId, startAt, endAt, excludeId } = request.data || {};
@@ -611,7 +612,7 @@ exports.checkSlotConflicts = onCall({ cors: true }, async (request) => {
   return buildConflictResponse(overlaps, isAdmin);
 });
 
-// ── Callable: admin recompute of every stored conflict flag ────────────────
+// â”€â”€ Callable: admin recompute of every stored conflict flag â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.recomputeAllConflicts = onCall({ cors: true }, async (request) => {
   const admin = await requireAdmin(request.auth);
   const venues = await db.collection('venues').get();
@@ -620,7 +621,7 @@ exports.recomputeAllConflicts = onCall({ cors: true }, async (request) => {
   return { venues: venues.size, changed };
 });
 
-// ── Callable: admin Excel import (dryRun returns the validation report only) ──
+// â”€â”€ Callable: admin Excel import (dryRun returns the validation report only) â”€â”€
 exports.importBookings = onCall({ cors: true, timeoutSeconds: 120 }, async (request) => {
   const admin = await requireAdmin(request.auth);
   const { rows, dryRun } = request.data || {};
@@ -676,7 +677,7 @@ exports.importBookings = onCall({ cors: true, timeoutSeconds: 120 }, async (requ
   return { dryRun: false, created, updated, skipped: report.counts.skip || 0, ...summary };
 });
 
-// ── Callable: public read of sanitized events (confirmed in full if public; private & pending masked) ──
+// â”€â”€ Callable: public read of sanitized events (confirmed in full if public; private & pending masked) â”€â”€
 exports.getPublicEvents = onCall({ cors: true }, async (request) => {
   const { from, to } = request.data || {};
   const snap = await db.collection('events').where('status', 'in', PUBLIC_STATUSES).get();
@@ -687,7 +688,7 @@ exports.getPublicEvents = onCall({ cors: true }, async (request) => {
   return { events };
 });
 
-// ── Public iCal feed (confirmed + public only) ──────────────────────────────
+// â”€â”€ Public iCal feed (confirmed + public only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 exports.icalFeed = onRequest({ cors: true }, async (req, res) => {
   try {
     const snap = await db.collection('events').where('status', 'in', PUBLIC_STATUSES).get();
@@ -699,7 +700,7 @@ exports.icalFeed = onRequest({ cors: true }, async (req, res) => {
       const sourceDoc = doc.data();
       lines.push(
         'BEGIN:VEVENT',
-        // UID domain intentionally kept stable across the app rename — see
+        // UID domain intentionally kept stable across the app rename â€” see
         // src/services/exportService.js for why (avoids breaking subscribers'
         // existing event dedup/update matching).
         `UID:${doc.id}@community-hub-calendar`,
@@ -732,10 +733,10 @@ function icsEscape(text) {
   return String(text || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
 }
 
-// ── Versioned REST API (/v1) ─────────────────────────────────────────────
+// â”€â”€ Versioned REST API (/v1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Public read access mirrors getPublicEvents (sanitized, public+confirmed
 // only). Writes and status changes require a Firebase ID token for an admin
-// account (Authorization: Bearer <token>). This is an MVP surface — see
+// account (Authorization: Bearer <token>). This is an MVP surface â€” see
 // docs/API.md for the documented contract and known limitations.
 const app = express();
 app.use(cors({ origin: true }));
@@ -788,7 +789,7 @@ app.post('/v1/events', async (req, res) => {
     const resolvedDates = resolveBookingDates(req.body, overrides);
     const overlaps = await findOverlaps(req.body.venueId, resolvedDates.startAt, resolvedDates.endAt, null, undefined, resolveBufferHours(venue));
     // Same visibility rule as the submitBooking callable: public submissions
-    // default to 'public' (safe — pending bookings are masked publicly regardless),
+    // default to 'public' (safe â€” pending bookings are masked publicly regardless),
     // an authenticated admin caller may explicitly choose, defaulting to
     // 'private' for admin-entered bookings if unspecified.
     const admin = await authenticateAdmin(req);
@@ -850,7 +851,7 @@ app.patch('/v1/events/:id/status', async (req, res) => {
 });
 
 // Note: this reports raw (unbuffered) booked windows for day-level display, not the
-// buffered conflict rule used by hasConflict/conflictWith above — see docs/API.md.
+// buffered conflict rule used by hasConflict/conflictWith above â€” see docs/API.md.
 app.get('/v1/availability', async (req, res) => {
   const { venue, date } = req.query;
   if (!venue || !date) return res.status(400).json({ error: 'venue and date (YYYY-MM-DD) are required.' });
@@ -873,9 +874,9 @@ function mapHttpsErrorCode(code) {
 
 exports.api = onRequest({ cors: true }, app);
 
-// ── Trigger: re-resolve Hijri-sourced bookings after an admin moon-sighting
-// adjustment ──────────────────────────────────────────────────────────────
-// Gregorian-based bookings never move — their stored startAt/endAt is always
+// â”€â”€ Trigger: re-resolve Hijri-sourced bookings after an admin moon-sighting
+// adjustment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Gregorian-based bookings never move â€” their stored startAt/endAt is always
 // the source of truth and only their *displayed* Hijri equivalent changes.
 // Hijri-based bookings are fixed to their stored hijriDate {day, month, year};
 // when the admin changes calendarSettings/hijri (a new/updated/removed
@@ -929,4 +930,9 @@ exports.onHijriSettingsChanged = onDocumentWritten('calendarSettings/hijri', asy
 
   if (opsInBatch > 0) await batch.commit();
   for (const entry of auditEntries) await writeAudit(entry);
+});
+
+// Venue edits (buffer hours, whole-site flag) change who conflicts with whom: refresh stored flags.
+exports.onVenueChanged = onDocumentWritten({ document: 'venues/{venueId}', region: 'australia-southeast1' }, async () => {
+  await recomputeVenueConflicts();
 });

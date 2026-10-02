@@ -42,6 +42,7 @@ export default function BookingModal({
   const [scope, setScope] = useState('single');
   const [rep, setRep] = useState(DEFAULT_REPEAT);
   const [conflict, setConflict] = useState(null);
+  const [conflictErr, setConflictErr] = useState('');
   const [preview, setPreview] = useState(null);
 
   useEffect(() => {
@@ -72,18 +73,18 @@ export default function BookingModal({
     return startAt && endAt ? { startAt, endAt } : null;
   }, [gregorianDate, form.start, form.end, form.endNextDay]);
 
-  const watchConflicts = open && (!editing || (isAdmin && editing && editMode));
+  const watchConflicts = open && (!editing || (isAdmin && editing && (editMode || editing.status === 'pending' || editing.status === 'confirmed')));
   // Live, server-side conflict check (confirmed + pending, buffer-aware). Public callers only
   // learn that a conflict exists; admins also see the conflicting bookings.
   useEffect(() => {
     if (!watchConflicts || !form.venueId || !range || new Date(range.endAt) <= new Date(range.startAt)) {
-      setConflict(null); return undefined;
+      setConflict(null); setConflictErr(''); return undefined;
     }
     let cancelled = false;
     const t = setTimeout(() => {
       checkSlotConflicts({ venueId: form.venueId, startAt: range.startAt, endAt: range.endAt, excludeId: editing?.id })
-        .then(r => { if (!cancelled) setConflict(r); })
-        .catch(() => { if (!cancelled) setConflict(null); });
+        .then(r => { if (!cancelled) { setConflict(r); setConflictErr(''); } })
+        .catch(() => { if (!cancelled) { setConflict(null); setConflictErr("Couldn't check conflicts right now. Please retry or reload."); } });
     }, 400);
     return () => { cancelled = true; clearTimeout(t); };
   }, [watchConflicts, form.venueId, range, editing?.id]);
@@ -352,6 +353,7 @@ export default function BookingModal({
               <div><label>Start</label><input type="time" value={form.start} disabled={form.timeMode !== 'custom'} onChange={e => set('start', e.target.value)} required /></div>
               <div><label>End{form.endNextDay ? ' (next day)' : ''}</label><input type="time" value={form.end} disabled={form.timeMode !== 'custom'} onChange={e => set('end', e.target.value)} required /></div>
             </div>
+            {watchConflicts && conflictErr && <div className="conflict-warn" role="alert">{conflictErr}</div>}
             {watchConflicts && conflict && conflict.hasConflict && (
               <div className="conflict-warn" role="alert">
                 {isAdmin
@@ -359,7 +361,7 @@ export default function BookingModal({
                       <b>This slot conflicts with {conflict.count} other booking(s) at this venue (including the venue's buffer after each booking):</b>
                       <ul>
                         {(conflict.conflicts || []).map(c2 => (
-                          <li key={c2.id}>{c2.title} — {c2.status} — {fmtRange(c2.startAt, c2.endAt)}{c2.departmentName ? ` — ${c2.departmentName}` : ''}{c2.contactName ? ` — ${c2.contactName}` : ''}</li>
+                          <li key={c2.id}>{c2.title}{c2.venueName ? ` @ ${c2.venueName}` : ''} — {c2.status} — {fmtRange(c2.startAt, c2.endAt)}{c2.departmentName ? ` — ${c2.departmentName}` : ''}{c2.contactName ? ` — ${c2.contactName}` : ''}</li>
                         ))}
                       </ul>
                       You can still save: accept the overlap, change the time/venue, or reject.

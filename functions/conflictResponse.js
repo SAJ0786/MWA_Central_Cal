@@ -6,7 +6,7 @@ function buildConflictResponse(overlaps, isAdmin) {
   return {
     ...base,
     conflicts: overlaps.map(o => ({
-      id: o.id, title: o.title || '', status: o.status || '',
+      id: o.id, venueName: o.venueName || '', title: o.title || '', status: o.status || '',
       startAt: o.startAt, endAt: o.endAt,
       departmentName: o.departmentName || '', contactName: o.contactName || '', visibility: o.visibility || ''
     }))

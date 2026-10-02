@@ -43,8 +43,21 @@ function rangesOverlapBuffered(candidateStart, candidateEnd, otherStart, otherEn
  * rule applied in both directions, so the result never depends on which was created first.
  */
 function rangesConflict(a, b, bufferHours) {
-  return rangesOverlapBuffered(a.startAt, a.endAt, b.startAt, b.endAt, bufferHours)
-    || rangesOverlapBuffered(b.startAt, b.endAt, a.startAt, a.endAt, bufferHours);
+  // Each booking may carry its own venue buffer (_buf) — needed when a whole-site venue
+  // is compared against a booking at a single hall.
+  const ba = a._buf !== undefined ? a._buf : bufferHours;
+  const bb = b._buf !== undefined ? b._buf : bufferHours;
+  return rangesOverlapBuffered(a.startAt, a.endAt, b.startAt, b.endAt, bb)
+    || rangesOverlapBuffered(b.startAt, b.endAt, a.startAt, a.endAt, ba);
+}
+
+/** A venue that occupies the whole site (e.g. "Entire MWA Precinct") conflicts with every other
+ * venue. Set venues/{id}.coversAllVenues = true; as a fallback a name containing "entire"/"whole" counts. */
+function isWholeSiteVenue(venue) {
+  if (!venue) return false;
+  if (venue.coversAllVenues === true) return true;
+  if (venue.coversAllVenues === false) return false;
+  return /\b(entire|whole)\b/i.test(String(venue.name || ''));
 }
 
 /**
@@ -54,13 +67,13 @@ function rangesConflict(a, b, bufferHours) {
 function computeConflictMap(events, bufferHours) {
   const sorted = [...events].sort((x, y) => String(x.startAt).localeCompare(String(y.startAt)));
   const map = new Map(sorted.map(e => [e.id, []]));
-  const bufferMs = (Number(bufferHours) || 0) * 3600000;
   let maxReach = -Infinity;
   for (let i = 0; i < sorted.length; i += 1) {
     const b = sorted[i];
     const bStart = new Date(b.startAt).getTime();
     // Nothing earlier in start order can reach this booking: skip the scan entirely.
-    if (bStart >= maxReach) { maxReach = Math.max(maxReach, new Date(b.endAt).getTime() + bufferMs); continue; }
+    const reach = (e) => new Date(e.endAt).getTime() + (Number(e._buf !== undefined ? e._buf : bufferHours) || 0) * 3600000;
+    if (bStart >= maxReach) { maxReach = Math.max(maxReach, reach(b)); continue; }
     for (let j = 0; j < i; j += 1) {
       const a = sorted[j];
       if (rangesConflict(a, b, bufferHours)) {
@@ -68,9 +81,29 @@ function computeConflictMap(events, bufferHours) {
         map.get(b.id).push(a.id);
       }
     }
-    maxReach = Math.max(maxReach, new Date(b.endAt).getTime() + bufferMs);
+    maxReach = Math.max(maxReach, reach(b));
   }
   return map;
 }
 
-module.exports = { resolveBufferHours, rangesOverlap, rangesOverlapBuffered, rangesConflict, computeConflictMap };
+/**
+ * Conflict map for ALL bookings: same-venue overlaps plus whole-site venue overlaps, each booking
+ * using its own venue's buffer. Returns Map<id, string[]> over active (pending/confirmed) bookings.
+ */
+function computeAllConflicts(events, venues) {
+  const vById = new Map(venues.map(v => [v.id, v]));
+  const active = events
+    .filter(e => e.venueId && e.startAt && e.endAt && (e.status === 'pending' || e.status === 'confirmed'))
+    .map(e => ({ id: e.id, venueId: e.venueId, startAt: e.startAt, endAt: e.endAt, _buf: resolveBufferHours(vById.get(e.venueId)) }));
+  const whole = active.filter(e => isWholeSiteVenue(vById.get(e.venueId)));
+  const result = new Map(active.map(e => [e.id, new Set()]));
+  const merge = (m) => { for (const [k, arr] of m) for (const x of arr) result.get(k).add(x); };
+  for (const vid of new Set(active.map(e => e.venueId))) {
+    if (isWholeSiteVenue(vById.get(vid))) continue;
+    merge(computeConflictMap([...active.filter(e => e.venueId === vid), ...whole], 0));
+  }
+  merge(computeConflictMap(whole, 0));
+  return new Map([...result].map(([k, s]) => [k, [...s]]));
+}
+
+module.exports = { isWholeSiteVenue, computeAllConflicts, resolveBufferHours, rangesOverlap, rangesOverlapBuffered, rangesConflict, computeConflictMap };

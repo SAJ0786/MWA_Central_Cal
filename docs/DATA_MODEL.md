@@ -109,3 +109,5 @@ Written only by Cloud Functions (Admin SDK) — never directly by clients. Admin
   (`bufferHours`, falling back to legacy `bufferMinutes/60`); two bookings conflict if either occupancy overlaps the
   other's booked time. `hasConflict`/`conflictWith` are recomputed server-side after every mutation.
 - Imported bookings are normal `events` docs (`createdByUid` = importing admin, audit action `imported`).
+
+- venues.coversAllVenues (bool, optional): whole-site venue; conflicts with bookings at every venue. If unset, names containing 'entire'/'whole' are treated as whole-site.

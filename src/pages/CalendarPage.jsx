@@ -1,3 +1,4 @@
+import { withLiveConflicts } from '../utils/conflictUtils.js';
 import { useEffect, useMemo, useState } from 'react';
 import { HIJRI_MONTHS } from '../services/hijriService.js';
 import { dateKeyInOrgTz, timeKeyInOrgTz } from '../utils/dateUtils.js';
@@ -12,7 +13,8 @@ import {
 } from '../utils/hijriCalendarGrid.js';
 import BookingModal from '../components/BookingModal.jsx';
 
-export default function CalendarPage({ events, venues, departments, isAdmin, hijriOverrides, onSaved }) {
+export default function CalendarPage({ events: rawEvents, venues, departments, isAdmin, hijriOverrides, onSaved }) {
+  const events = useMemo(() => withLiveConflicts(rawEvents, venues, isAdmin), [rawEvents, venues, isAdmin]);
   // Which calendar drives month navigation / in-cell day numbering. Weekday
   // columns/labels are identical regardless of this choice.
   const [primary, setPrimary] = useState('gregorian'); // 'gregorian' | 'hijri'
@@ -21,6 +23,8 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
   const [deptFilter, setDeptFilter] = useState(() => new Set(departments.map(d => d.id)));
   const [venueFilter, setVenueFilter] = useState('');
   const [modal, setModal] = useState(null); // { editing } | { newOnDate }
+
+  const [selectedKey, setSelectedKey] = useState(null);
 
   useEffect(() => {
     setDeptFilter(prev => {
@@ -155,10 +159,10 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
             ? `${cell.date.getDate()}${showMonthName ? ' ' + cell.date.toLocaleDateString('en-AU', { month: 'short' }) : ''}`
             : (cell.hijri.year ? `${cell.hijri.day}${showMonthName ? ' ' + (HIJRI_MONTHS.find(m => m.value === cell.hijri.month)?.name || '') : ''}` : '');
           return (
-            <div key={cell.key} className={`cell ${!cell.inMonth ? 'out' : ''} ${cell.key === todayKey ? 'today' : ''}`}
-              onClick={() => setModal({ editing: null, newOnDate: cell.key })}>
-              <span className={`n ${primary === 'hijri' ? 'dt-h' : 'dt-g'}`}>{mainNumber}</span>
-              {subLabel ? <span className={`h-sub ${primary === 'hijri' ? 'dt-g' : 'dt-h'}`}>{subLabel}</span> : null}
+            <div key={cell.key} className={`cell ${!cell.inMonth ? 'out' : ''}             ${cell.key === todayKey ? 'today' : ''} ${cell.key === selectedKey ? 'selected' : ''}`}
+                          onClick={() => { setSelectedKey(cell.key); setModal({ editing: null, newOnDate: cell.key }); }}>
+                          <div className="cell-head"><span className={`n ${primary === 'hijri' ? 'dt-h' : 'dt-g'}`}>{mainNumber}</span>
+                          {subLabel ? <span className={`h-sub ${primary === 'hijri' ? 'dt-g' : 'dt-h'}`}>{subLabel}</span> : null}</div>
               {list.slice(0, 3).map(e => (
                 <button key={e.id} className={`ev ${e.status === 'pending' ? 'pend' : ''} ${e.masked && e.status !== 'pending' ? 'priv' : ''} ${e.hasConflict ? 'conflict' : ''}`}
                   style={e.masked ? undefined : { background: deptColor(e.departmentId) }}

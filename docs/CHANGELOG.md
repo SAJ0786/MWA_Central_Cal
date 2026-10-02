@@ -300,3 +300,10 @@ button (callable `recomputeAllConflicts`) to repair existing data.
   otherwise create; same venue+time+title = skipped as duplicate (idempotent re-import). Defaults:
   confirmed + public. Times are Sydney civil time; end earlier than start = overnight. Conflicts are
   flagged, not blocked. Audit entries per row plus a summary.
+
+## Conflict root-cause fix + date typography (committed locally, NOT deployed)
+- Root cause: the Boys Cricket Tournament is booked at **"Entire MWA Precinct"**, not Main Hall, and conflict logic only compared bookings at the same venue. Added a whole-site rule: a venue with `coversAllVenues: true` (or, when unset, a name containing "entire"/"whole") conflicts with every venue, each booking using its own venue's buffer hours. Same-venue/same-time checks already worked live.
+- Stored `hasConflict` flags were only refreshed at submit/edit time. Admin Bookings list/Calendar now compute conflicts live from current data (`src/utils/conflictUtils.js`); BookingModal checks live for any pending/confirmed booking an admin opens and shows "Couldn't check conflicts" instead of swallowing errors; conflict list includes venue name.
+- Server: venue create/edit now triggers `onVenueChanged` to recompute all stored flags; `recomputeVenueConflicts` covers all venues. Venue admin edit has a "Whole site" checkbox (`coversAllVenues`).
+- Typography: date numbers doubled (Gregorian black, Hijri green), normal weight; only today/selected are bold + underlined; yellow boxed highlight removed; cells resized responsively.
+- Needs deploy (functions + hosting) to take effect.
