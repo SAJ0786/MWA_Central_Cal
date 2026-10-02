@@ -101,3 +101,11 @@ audit trail. Public read (needed to render correct Hijri dates for guests), admi
 `entityType`, `entityId`, `action` (`submitted`, `status_confirmed`, `status_rejected`,
 `status_cancelled`, `updated`), `userId`, `userEmail`, `note`, `diff`, `timestamp`.
 Written only by Cloud Functions (Admin SDK) — never directly by clients. Admin read only.
+
+### Batch A–H additions
+
+- `timeMode`: `custom` | `allDay` | `allNight` (see CHANGELOG for windows; overnight ends next civil day).
+- Conflict rule: each active (pending/confirmed) booking occupies `[startAt, endAt + venue.bufferHours]`
+  (`bufferHours`, falling back to legacy `bufferMinutes/60`); two bookings conflict if either occupancy overlaps the
+  other's booked time. `hasConflict`/`conflictWith` are recomputed server-side after every mutation.
+- Imported bookings are normal `events` docs (`createdByUid` = importing admin, audit action `imported`).

@@ -115,9 +115,9 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
 
       <div className="bar">
         <button className="btn" onClick={() => shift(-1)}>‹</button>
-        <strong style={{ minWidth: 200, textAlign: 'center' }}>
+        <strong className={`cal-title ${primary === 'hijri' ? 'dt-h' : 'dt-g'}`} style={{ minWidth: 200, textAlign: 'center' }}>
           {grid.label}
-          {secondaryLabel && <div className="h-sub">{secondaryLabel}</div>}
+          {secondaryLabel && <div className={`h-sub ${primary === 'hijri' ? 'dt-g' : 'dt-h'}`}>{secondaryLabel}</div>}
         </strong>
         <button className="btn" onClick={() => shift(1)}>›</button>
         <button className="btn" onClick={goToday}>Today</button>
@@ -157,8 +157,8 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
           return (
             <div key={cell.key} className={`cell ${!cell.inMonth ? 'out' : ''} ${cell.key === todayKey ? 'today' : ''}`}
               onClick={() => setModal({ editing: null, newOnDate: cell.key })}>
-              <span className="n">{mainNumber}</span>
-              {subLabel ? <span className="h-sub">{subLabel}</span> : null}
+              <span className={`n ${primary === 'hijri' ? 'dt-h' : 'dt-g'}`}>{mainNumber}</span>
+              {subLabel ? <span className={`h-sub ${primary === 'hijri' ? 'dt-g' : 'dt-h'}`}>{subLabel}</span> : null}
               {list.slice(0, 3).map(e => (
                 <button key={e.id} className={`ev ${e.status === 'pending' ? 'pend' : ''} ${e.masked && e.status !== 'pending' ? 'priv' : ''} ${e.hasConflict ? 'conflict' : ''}`}
                   style={e.masked ? undefined : { background: deptColor(e.departmentId) }}

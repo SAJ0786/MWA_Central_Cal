@@ -68,3 +68,20 @@ export async function deleteBooking(eventId, scope = 'single') {
   const res = await fn({ eventId, scope });
   return res.data;
 }
+
+async function call(name, data) {
+  const res = await httpsCallable(functions, name)(data);
+  return res.data;
+}
+
+/** Live conflict check. Public callers get { hasConflict, count } only; admins also get the list. */
+export const checkSlotConflicts = (payload) => call('checkSlotConflicts', payload);
+
+/** Admin-only: exact occurrence list + per-occurrence conflicts, before creating a series. */
+export const previewRecurringBooking = (payload) => call('previewRecurringBooking', payload);
+
+/** Admin-only: Excel import (`dryRun: true` validates only). */
+export const importBookings = (rows, dryRun) => call('importBookings', { rows, dryRun });
+
+/** Admin-only: recompute every stored overlap flag (buffer-aware, symmetric). */
+export const recomputeAllConflicts = () => call('recomputeAllConflicts', {});

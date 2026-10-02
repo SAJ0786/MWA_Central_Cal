@@ -2,10 +2,29 @@ import { useEffect, useMemo, useState } from 'react';
 import { HIJRI_MONTHS, hijriToGregorian, getHijriParts } from '../services/hijriService.js';
 import { localToUtcIso, formatInOrgTz, dateKeyInOrgTz, timeKeyInOrgTz } from '../utils/dateUtils.js';
 import {
-  submitBooking, decideBooking, updateBookingScoped, createRecurringBooking, deleteBooking
+  submitBooking, decideBooking, updateBookingScoped, createRecurringBooking, deleteBooking,
+  checkSlotConflicts, previewRecurringBooking
 } from '../services/eventsService.js';
 
 const todayStr = () => dateKeyInOrgTz(new Date().toISOString());
+// All day / all night windows (Australia/Sydney civil time). All night crosses midnight.
+const TIME_MODES = {
+  allDay: { start: '00:00', end: '23:59', endNextDay: false },
+  allNight: { start: '18:00', end: '06:00', endNextDay: true }
+};
+
+function addDays(dateStr, n) {
+  const t = new Date(Date.parse(`${dateStr}T00:00:00Z`) + n * 86400000);
+  return t.toISOString().slice(0, 10);
+}
+
+function fmtHijri(h) {
+  if (!h || !h.year) return '';
+  return `${h.day} ${HIJRI_MONTHS.find(m => m.value === h.month)?.name || ''} ${h.year} AH`;
+}
+
+const fmtRange = (s, e) => `${formatInOrgTz(s, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} – ${formatInOrgTz(e, { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+
 const DEFAULT_REPEAT = { on: false, frequency: 'week', repeatEvery: 1, endMode: 'count', count: 10, endDate: '', status: 'confirmed' };
 
 export default function BookingModal({
@@ -22,11 +41,13 @@ export default function BookingModal({
   const [editMode, setEditMode] = useState(false);
   const [scope, setScope] = useState('single');
   const [rep, setRep] = useState(DEFAULT_REPEAT);
+  const [conflict, setConflict] = useState(null);
+  const [preview, setPreview] = useState(null);
 
   useEffect(() => {
     setForm(emptyForm(editing, initialDate, isAdmin));
     setErr(''); setOk(''); setLocked(false); setEditMode(false); setScope('single');
-    setRep(DEFAULT_REPEAT);
+    setRep(DEFAULT_REPEAT); setConflict(null); setPreview(null);
   }, [editing, open, initialDate, isAdmin]);
 
   const gregorianDate = useMemo(() => {
@@ -43,6 +64,30 @@ export default function BookingModal({
     return `${h.day} ${name} ${h.year} AH`;
   }, [form.basis, form.date, hijriOverrides]);
 
+  // Booked interval as real instants; "all night" (and any overnight edit) ends on the next civil day.
+  const range = useMemo(() => {
+    if (!gregorianDate || !form.start || !form.end) return null;
+    const startAt = localToUtcIso(gregorianDate, form.start);
+    const endAt = localToUtcIso(form.endNextDay ? addDays(gregorianDate, 1) : gregorianDate, form.end);
+    return startAt && endAt ? { startAt, endAt } : null;
+  }, [gregorianDate, form.start, form.end, form.endNextDay]);
+
+  const watchConflicts = open && (!editing || (isAdmin && editing && editMode));
+  // Live, server-side conflict check (confirmed + pending, buffer-aware). Public callers only
+  // learn that a conflict exists; admins also see the conflicting bookings.
+  useEffect(() => {
+    if (!watchConflicts || !form.venueId || !range || new Date(range.endAt) <= new Date(range.startAt)) {
+      setConflict(null); return undefined;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      checkSlotConflicts({ venueId: form.venueId, startAt: range.startAt, endAt: range.endAt, excludeId: editing?.id })
+        .then(r => { if (!cancelled) setConflict(r); })
+        .catch(() => { if (!cancelled) setConflict(null); });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [watchConflicts, form.venueId, range, editing?.id]);
+
   useEffect(() => {
     if (!open) return undefined;
     function onKeyDown(e) { if (e.key === 'Escape') onClose && onClose(); }
@@ -55,8 +100,19 @@ export default function BookingModal({
   const isSeries = !!(editing && editing.seriesId);
   const readOnly = !!editing && !editMode;
 
-  function set(k, v) { setForm(f => ({ ...f, [k]: v })); setLocked(false); }
-  function setR(k, v) { setRep(r => ({ ...r, [k]: v })); setLocked(false); }
+  function set(k, v) { setForm(f => ({ ...f, [k]: v })); setLocked(false); setPreview(null); }
+  function setR(k, v) { setRep(r => ({ ...r, [k]: v })); setLocked(false); setPreview(null); }
+  function setTimeMode(mode) {
+    const w = TIME_MODES[mode];
+    setForm(f => (w
+      ? { ...f, timeMode: mode, start: w.start, end: w.end, endNextDay: w.endNextDay }
+      : { ...f, timeMode: 'custom', endNextDay: false }));
+    setLocked(false); setPreview(null);
+  }
+  function clearForm() {
+    setForm(emptyForm(null, initialDate, isAdmin));
+    setRep(DEFAULT_REPEAT); setErr(''); setOk(''); setLocked(false); setConflict(null); setPreview(null);
+  }
   function cancelEdit() { setForm(emptyForm(editing, initialDate, isAdmin)); setEditMode(false); setErr(''); setOk(''); }
 
   const closeButton = <button type="button" className="dlg-close" onClick={onClose} aria-label="Close dialog">✕</button>;
@@ -84,28 +140,38 @@ export default function BookingModal({
     );
   }
 
-  async function handleRecurringCreate() {
-    if (!form.title || !form.departmentId || !form.venueId || !form.start || !form.end || !form.contactName || !form.contactEmail) {
-      setErr('Please fill in title, department, venue, times and contact details.'); return;
-    }
-    if (form.end <= form.start) { setErr('End time must be after start time.'); return; }
+  function seriesPayload() {
     const recurrence = {
       basis: form.basis === 'h' ? 'hijri' : 'gregorian',
-      startTime: form.start, endTime: form.end,
+      startTime: form.start, endTime: form.end, endNextDay: !!form.endNextDay,
       frequency: rep.frequency, repeatEvery: Number(rep.repeatEvery),
       endMode: rep.endMode, count: Number(rep.count), endDate: rep.endDate
     };
     if (form.basis === 'h') recurrence.hijriStart = { day: Number(form.hDay), month: Number(form.hMonth), year: Number(form.hYear) };
     else recurrence.startDate = form.date;
+    return {
+      title: form.title, departmentId: form.departmentId, venueId: form.venueId,
+      contactName: form.contactName, contactEmail: form.contactEmail, contactPhone: form.contactPhone,
+      notes: form.notes, visibility: form.visibility, status: rep.status, timeMode: form.timeMode, recurrence
+    };
+  }
+
+  // Two-step: first preview the exact occurrences (and conflicts), then create on confirmation.
+  async function handleRecurringCreate(confirmed) {
+    if (!form.title || !form.departmentId || !form.venueId || !form.start || !form.end || !form.contactName || !form.contactEmail) {
+      setErr('Please fill in title, department, venue, times and contact details.'); return;
+    }
+    if (!form.endNextDay && form.end <= form.start) { setErr('End time must be after start time.'); return; }
     setBusy(true);
     try {
-      const res = await createRecurringBooking({
-        title: form.title, departmentId: form.departmentId, venueId: form.venueId,
-        contactName: form.contactName, contactEmail: form.contactEmail, contactPhone: form.contactPhone,
-        notes: form.notes, visibility: form.visibility, status: rep.status, recurrence
-      });
+      if (!confirmed) {
+        setPreview(await previewRecurringBooking(seriesPayload()));
+        return;
+      }
+      const res = await createRecurringBooking(seriesPayload());
       setOk(`Created ${res.created} occurrence(s) as ${res.status}.` +
         (res.conflicts ? ` ${res.conflicts} overlap another booking at this venue and are flagged for review.` : ''));
+      setPreview(null);
       setLocked(true);
       onSaved && onSaved();
     } catch (e2) {
@@ -117,11 +183,12 @@ export default function BookingModal({
     const what = isSeries && scope !== 'single'
       ? (scope === 'all' ? 'ALL occurrences in this series' : 'this and all future occurrences')
       : 'this booking';
-    if (!window.confirm(`Permanently delete ${what}? This cannot be undone.`)) return;
+    const keep = isSeries && scope !== 'single' ? ' Occurrences that have already started are kept as records.' : '';
+    if (!window.confirm(`Permanently delete ${what}? This cannot be undone.${keep}`)) return;
     setErr(''); setOk(''); setBusy(true);
     try {
       const res = await deleteBooking(editing.id, isSeries ? scope : 'single');
-      setOk(`Deleted ${res.deleted} booking(s).`);
+      setOk(`Deleted ${res.deleted} booking(s).${res.kept ? ` ${res.kept} past occurrence(s) kept.` : ''}`);
       onSaved && onSaved();
       onClose && onClose();
     } catch (e2) {
@@ -132,16 +199,16 @@ export default function BookingModal({
   async function handlePublicSubmit(e) {
     e.preventDefault();
     setErr(''); setOk('');
-    if (isAdmin && rep.on) { await handleRecurringCreate(); return; }
+    if (isAdmin && rep.on) { await handleRecurringCreate(false); return; }
     if (!form.title || !form.departmentId || !form.venueId || !gregorianDate || !form.start || !form.end) {
       setErr('Please fill in title, department, venue, date and times.'); return;
     }
-    const startAt = localToUtcIso(gregorianDate, form.start);
-    const endAt = localToUtcIso(gregorianDate, form.end);
-    if (new Date(endAt) <= new Date(startAt)) { setErr('End time must be after start time.'); return; }
+    if (!range || new Date(range.endAt) <= new Date(range.startAt)) { setErr('End time must be after start time.'); return; }
+    const { startAt, endAt } = range;
     setBusy(true);
     try {
       const payload = {
+        timeMode: form.timeMode,
         title: form.title, departmentId: form.departmentId, venueId: form.venueId,
         startAt, endAt,
         dateBasis: form.basis,
@@ -165,9 +232,10 @@ export default function BookingModal({
     setErr(''); setOk('');
     setBusy(true);
     try {
-      const startAt = localToUtcIso(gregorianDate, form.start);
-      const endAt = localToUtcIso(gregorianDate, form.end);
+      if (!range || new Date(range.endAt) <= new Date(range.startAt)) { setErr('End time must be after start time.'); setBusy(false); return; }
+      const { startAt, endAt } = range;
       await updateBookingScoped(editing.id, {
+        timeMode: form.timeMode,
         title: form.title, departmentId: form.departmentId, venueId: form.venueId,
         startAt, endAt, notes: form.notes,
         contactName: form.contactName, contactEmail: form.contactEmail, contactPhone: form.contactPhone,
@@ -273,10 +341,35 @@ export default function BookingModal({
               </div>
             )}
 
-            <div className="r2">
-              <div><label>Start</label><input type="time" value={form.start} onChange={e => set('start', e.target.value)} required /></div>
-              <div><label>End</label><input type="time" value={form.end} onChange={e => set('end', e.target.value)} required /></div>
+            <div role="radiogroup" aria-label="Time of day" className="timemode">
+              {[['custom', 'Set times'], ['allDay', 'All day (00:00–23:59)'], ['allNight', 'All night (18:00–06:00 next day)']].map(([v, label]) => (
+                <label key={v} className="radio">
+                  <input type="radio" name="timeMode" checked={form.timeMode === v} onChange={() => setTimeMode(v)} /> {label}
+                </label>
+              ))}
             </div>
+            <div className="r2">
+              <div><label>Start</label><input type="time" value={form.start} disabled={form.timeMode !== 'custom'} onChange={e => set('start', e.target.value)} required /></div>
+              <div><label>End{form.endNextDay ? ' (next day)' : ''}</label><input type="time" value={form.end} disabled={form.timeMode !== 'custom'} onChange={e => set('end', e.target.value)} required /></div>
+            </div>
+            {watchConflicts && conflict && conflict.hasConflict && (
+              <div className="conflict-warn" role="alert">
+                {isAdmin
+                  ? <>
+                      <b>This slot conflicts with {conflict.count} other booking(s) at this venue (including the venue's buffer after each booking):</b>
+                      <ul>
+                        {(conflict.conflicts || []).map(c2 => (
+                          <li key={c2.id}>{c2.title} — {c2.status} — {fmtRange(c2.startAt, c2.endAt)}{c2.departmentName ? ` — ${c2.departmentName}` : ''}{c2.contactName ? ` — ${c2.contactName}` : ''}</li>
+                        ))}
+                      </ul>
+                      You can still save: accept the overlap, change the time/venue, or reject.
+                    </>
+                  : 'This conflicts with another booking at this venue. You can still submit; the request is subject to admin approval.'}
+              </div>
+            )}
+            {watchConflicts && conflict && !conflict.hasConflict && isAdmin && (
+              <div className="ok" style={{ marginTop: 8 }}>No conflicts for this venue and time.</div>
+            )}
 
             <div className="r2">
               <div><label>Contact name</label><input value={form.contactName} onChange={e => set('contactName', e.target.value)} required /></div>
@@ -386,6 +479,26 @@ export default function BookingModal({
             </div>
           )}
 
+          {repeating && preview && (
+            <div className="card" style={{ marginTop: 14 }}>
+              <b>This will create {preview.count} event(s)</b>
+              {preview.conflicts > 0 && <span className="conflict-badge">{preview.conflicts} with conflicts</span>}
+              <div className="muted">{form.basis === 'h' ? 'Hijri-anchored: Gregorian dates are derived from the Hijri dates and current adjustment.' : 'Gregorian-anchored: Hijri dates are derived from each Gregorian date.'}</div>
+              <ol className="preview-list">
+                {preview.occurrences.map(o => (
+                  <li key={o.index} className={o.hasConflict ? 'has-conflict' : ''}>
+                    {fmtRange(o.startAt, o.endAt)}{o.hijri ? ` · ${fmtHijri(o.hijri)}` : ''}
+                    {o.hasConflict && <> — <b>conflict</b>: {o.conflicts.map(x => x.title).join(', ')}</>}
+                  </li>
+                ))}
+              </ol>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button type="button" className="btn pri" disabled={busy || locked} onClick={() => handleRecurringCreate(true)}>Confirm &amp; create {preview.count} event(s)</button>
+                <button type="button" className="btn" disabled={busy} onClick={() => setPreview(null)}>Back</button>
+              </div>
+            </div>
+          )}
+
           {err && <div className="err">{err}</div>}
           {ok && <div className="ok">{ok}</div>}
 
@@ -397,7 +510,10 @@ export default function BookingModal({
               </>
             )}
             {!editing && (
-              <button className="btn pri" disabled={busy || locked} type="submit">{repeating ? 'Create series' : 'Submit request'}</button>
+              <>
+                <button className="btn pri" disabled={busy || locked || (repeating && !!preview)} type="submit">{repeating ? 'Preview series' : 'Submit request'}</button>
+                <button className="btn" disabled={busy} type="button" onClick={clearForm}>Clear form</button>
+              </>
             )}
           </div>
         </form>
@@ -416,7 +532,9 @@ function emptyForm(editing, initialDate, isAdmin) {
       start: isoTime(editing.startAt), end: isoTime(editing.endAt),
       contactName: editing.contactName || '', contactEmail: editing.contactEmail || '', contactPhone: editing.contactPhone || '',
       notes: editing.notes || '',
-      visibility: editing.visibility || 'private', decisionNote: ''
+      visibility: editing.visibility || 'private', decisionNote: '',
+      timeMode: editing.timeMode || 'custom',
+      endNextDay: !!(editing.startAt && editing.endAt && dateKeyInOrgTz(editing.endAt) !== dateKeyInOrgTz(editing.startAt))
     };
   }
   return {
@@ -424,7 +542,8 @@ function emptyForm(editing, initialDate, isAdmin) {
     hDay: '', hMonth: '1', hYear: '',
     start: '09:00', end: '10:00',
     contactName: '', contactEmail: '', contactPhone: '', notes: '',
-    visibility: isAdmin ? 'private' : 'public', decisionNote: ''
+    visibility: isAdmin ? 'private' : 'public', decisionNote: '',
+    timeMode: 'custom', endNextDay: false
   };
 }
 

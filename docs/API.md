@@ -113,3 +113,14 @@ notes or department data. Subscribe to it from Google Calendar/Outlook. Served b
 - No API-key auth for server-to-server integrations — only Firebase ID tokens for admins.
 - No pagination on `GET /v1/events` — fine at MVP data volumes, revisit before it grows.
 - No OpenAPI/Swagger document yet; this file is the canonical contract for now.
+
+## Callables added (batch A–H)
+
+| Callable | Caller | Purpose |
+|---|---|---|
+| `checkSlotConflicts {venueId,startAt,endAt,excludeId?}` | public | `{hasConflict,count}` only; admins also get `conflicts[]` (id,title,status,startAt,endAt,departmentName,contactName,visibility) |
+| `previewRecurringBooking` | admin | Same input as `createRecurringBooking`; returns `{count,conflicts,occurrences[]}` without writing |
+| `importBookings {rows,dryRun}` | admin | Validates (max 500 rows) and, when `dryRun` is false, writes; returns counts, row errors, warnings |
+| `recomputeAllConflicts` | admin | Repairs stored `hasConflict`/`conflictWith` for all venues |
+
+`deleteBooking` now keeps bookings that have already started (single: rejected; series scopes: only upcoming occurrences deleted, `kept` returned).

@@ -259,3 +259,44 @@ directive above.
   recompute other bookings' stale `hasConflict` flags (pre-existing behaviour).
 - Recurring create/delete are callables only (not in REST `/v1`).
 - Tests: `functions/recurrence.test.js`, `functions/publicProjection.test.js`.
+
+## Batch: stale conflict flags, live conflicts, series preview, all day/night, Excel (A–H)
+
+Root cause of "no conflict shown" (Main Hall: Boys Cricket 10:30–15:00 confirmed vs Public
+Speaking Seminar 16:00–20:00 pending): the venue buffer is **genuinely 3 hours** (live doc has
+`bufferHours: 3`; a junk legacy `bufferMinutes: 3` is ignored because `bufferHours` wins), so
+Cricket occupies 10:30–18:00 and the seminar does conflict. `hasConflict` was only computed for
+the booking being submitted/edited at that moment, never recomputed for the *other* bookings, so
+a booking created/confirmed/imported earlier, or a buffer changed later, left stale flags.
+Fixes: conflict rule is now **symmetric** (each active booking occupies `[start, end + buffer]`;
+a pair conflicts if either one's occupancy overlaps the other's booked time; strict bounds, so a
+start exactly at end + buffer is clear); the server recomputes stored flags for the venue after
+every submit/decision/update/series create/delete/import; admins get a **Recalculate conflicts**
+button (callable `recomputeAllConflicts`) to repair existing data.
+
+- A. Series: admin-created series default to Confirmed; visibility is whatever the admin selects
+  (server falls back to public only if omitted). Time-of-day edits apply to remaining
+  occurrences; occurrences that have already started are never modified by "this and following" / "all".
+- B. Retention: nothing auto-purges. Bookings are never limited by age; Bookings page has From/To
+  filters ("Last 2 years +", "All time"). A booking that has already started cannot be hard-deleted
+  (cancel it instead). Deleting a series with "this and following"/"all" deletes only upcoming
+  occurrences; past ones are kept and reported (`kept`).
+- C. New (public) booking form has a **Clear form** button; no post-submit delete for public users.
+- D. Series creation is two-step: **Preview series** (callable `previewRecurringBooking`) shows the exact
+  count, each date incl. Hijri equivalent, and per-occurrence conflicts; then **Confirm & create**.
+  Anchoring is unchanged (Hijri input -> Gregorian derived; Gregorian input -> Hijri derived).
+- E. Dates are larger and bold: Gregorian black, Hijri dark green (#166534); high-contrast
+  today/other-month/pending styles (no dark mode exists in the app).
+- F. Live conflict warning below the time fields (confirmed + pending, buffer-aware) via callable
+  `checkSlotConflicts`. Public callers receive only `{hasConflict, count}` (no titles/contacts/notes/times);
+  admins also get the conflicting bookings. Submission is never blocked; re-evaluated on date/time/venue/mode change.
+- G. **All day** = 00:00–23:59 Sydney, same day. **All night** = 18:00 -> 06:00 **next day** (`endNextDay`;
+  validation is on real instants, so the overnight window is valid; DST-safe). Stored as `timeMode`
+  (`custom|allDay|allNight`). Available on the booking form, series form and admin edit.
+- H. Admin-only Excel: **Export Excel** (respects the From/To filter; cells starting `= + - @` are
+  prefixed with `'`), **Import template**, **Import Excel…** (SheetJS 0.20.3, parsed in the admin's browser,
+  max 2 MB / 500 rows, server re-validates in callable `importBookings`). Dry-run preview with row errors,
+  then confirm. Departments/venues match by name (unknown = row error). Id present and found = update;
+  otherwise create; same venue+time+title = skipped as duplicate (idempotent re-import). Defaults:
+  confirmed + public. Times are Sydney civil time; end earlier than start = overnight. Conflicts are
+  flagged, not blocked. Audit entries per row plus a summary.

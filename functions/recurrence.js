@@ -88,7 +88,9 @@ function generateOccurrences(rule, overrides = []) {
   }
   validateTime(r.startTime, 'Start time');
   validateTime(r.endTime, 'End time');
-  if (r.endTime <= r.startTime) throw new RecurrenceError('End time must be after start time.');
+  const endNextDay = r.endNextDay === true;
+  // An overnight window (e.g. All night 18:00 -> 06:00) ends on the following civil day.
+  if (!endNextDay && r.endTime <= r.startTime) throw new RecurrenceError('End time must be after start time.');
 
   const isHijri = r.basis === 'hijri';
   let startKey;
@@ -161,8 +163,9 @@ function generateOccurrences(rule, overrides = []) {
       index: occurrences.length,
       dateKey,
       startAt: localToUtcIso(dateKey, r.startTime),
-      endAt: localToUtcIso(dateKey, r.endTime),
-      hijriDate: isHijri ? hijriDate : null
+      endAt: localToUtcIso(endNextDay ? addDaysKey(dateKey, 1) : dateKey, r.endTime),
+      hijriDate: isHijri ? hijriDate : null,
+      hijriDisplay: hijriDate || toHijriParts(dateKey, overrides)
     });
   }
 
