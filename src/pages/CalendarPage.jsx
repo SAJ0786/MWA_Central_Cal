@@ -1,13 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
-import { HIJRI_MONTHS, getHijriParts } from '../services/hijriService.js';
+import { HIJRI_MONTHS } from '../services/hijriService.js';
 import { dateKeyInOrgTz } from '../utils/dateUtils.js';
+import {
+  DOW,
+  buildGregorianMonthGrid,
+  buildHijriMonthGrid,
+  gregorianCursorToHijri,
+  hijriCursorToGregorian,
+  shiftGregorianCursor,
+  shiftHijriCursor
+} from '../utils/hijriCalendarGrid.js';
 import BookingModal from '../components/BookingModal.jsx';
 
-const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
 export default function CalendarPage({ events, venues, departments, isAdmin, hijriOverrides, onSaved }) {
-  const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); return d; });
-  const [showHijri, setShowHijri] = useState(true);
+  // Which calendar drives month navigation / in-cell day numbering. Weekday
+  // columns/labels are identical regardless of this choice.
+  const [primary, setPrimary] = useState('gregorian'); // 'gregorian' | 'hijri'
+  const [gCursor, setGCursor] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [hCursor, setHCursor] = useState(() => gregorianCursorToHijri(gCursor.year, gCursor.month, hijriOverrides));
   const [deptFilter, setDeptFilter] = useState(() => new Set(departments.map(d => d.id)));
   const [venueFilter, setVenueFilter] = useState('');
   const [modal, setModal] = useState(null); // { editing } | { newOnDate }
@@ -26,10 +36,6 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
     (!venueFilter || e.venueId === venueFilter)
   ), [events, deptFilter, venueFilter]);
 
-  const year = cursor.getFullYear(), month = cursor.getMonth();
-  const firstDow = (new Date(year, month, 1).getDay() + 6) % 7;
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const totalCells = Math.ceil((firstDow + daysInMonth) / 7) * 7;
   const todayKey = dateKeyInOrgTz(new Date().toISOString());
 
   const byDay = useMemo(() => {
@@ -43,14 +49,33 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
     return map;
   }, [shown]);
 
-  const monthHijriRange = useMemo(() => {
-    const a = getHijriParts(dateKeyFromParts(year, month, 1), hijriOverrides);
-    const b = getHijriParts(dateKeyFromParts(year, month, daysInMonth), hijriOverrides);
+  // Build the primary grid from its own calendar outward (not by relabeling
+  // the other calendar's fixed month), so Hijri-primary navigation correctly
+  // follows variable 29/30-day months and moon-sighting overrides.
+  const grid = useMemo(() => (
+    primary === 'hijri'
+      ? buildHijriMonthGrid(hCursor.hYear, hCursor.hMonth, hijriOverrides)
+      : buildGregorianMonthGrid(gCursor.year, gCursor.month, hijriOverrides)
+  ), [primary, gCursor, hCursor, hijriOverrides]);
+
+  const secondaryLabel = useMemo(() => {
+    const inMonth = grid.cells.filter(c => c.inMonth);
+    if (!inMonth.length) return '';
+    if (primary === 'hijri') {
+      const a = inMonth[0].date, b = inMonth[inMonth.length - 1].date;
+      const af = a.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+      const bf = b.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+      return af === bf ? af : `${af} – ${bf}`;
+    }
+    const a = inMonth[0].hijri, b = inMonth[inMonth.length - 1].hijri;
     if (!a.year || !b.year) return '';
     const an = HIJRI_MONTHS.find(m => m.value === a.month)?.name || '';
     const bn = HIJRI_MONTHS.find(m => m.value === b.month)?.name || '';
-    return a.month === b.month && a.year === b.year ? `${an} ${a.year}` : `${an} ${a.year} – ${bn} ${b.year}`;
-  }, [year, month, daysInMonth, hijriOverrides]);
+    return a.month === b.month && a.year === b.year ? `${an} ${a.year} AH` : `${an} ${a.year} – ${bn} ${b.year} AH`;
+  }, [grid, primary]);
+
+  const monthKeys = useMemo(() => new Set(grid.cells.filter(c => c.inMonth).map(c => c.key)), [grid]);
+  const monthEvents = useMemo(() => shown.filter(e => monthKeys.has(dateKeyInOrgTz(e.startAt))), [shown, monthKeys]);
 
   function toggleDept(id) {
     setDeptFilter(prev => {
@@ -60,10 +85,24 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
     });
   }
 
-  const monthEvents = shown.filter(e => {
-    const k = dateKeyInOrgTz(e.startAt);
-    return k.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`);
-  });
+  function goToday() {
+    const d = new Date();
+    const g = { year: d.getFullYear(), month: d.getMonth() };
+    setGCursor(g);
+    setHCursor(gregorianCursorToHijri(g.year, g.month, hijriOverrides));
+  }
+
+  function shift(delta) {
+    if (primary === 'hijri') setHCursor(c => shiftHijriCursor(c, delta));
+    else setGCursor(c => shiftGregorianCursor(c, delta));
+  }
+
+  function setPrimaryCalendar(next) {
+    if (next === primary) return;
+    if (next === 'hijri') setHCursor(gregorianCursorToHijri(gCursor.year, gCursor.month, hijriOverrides));
+    else setGCursor(hijriCursorToGregorian(hCursor.hYear, hCursor.hMonth, hijriOverrides));
+    setPrimary(next);
+  }
 
   return (
     <section>
@@ -75,20 +114,23 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
       </div>
 
       <div className="bar">
-        <button className="btn" onClick={() => setCursor(c => shiftMonth(c, -1))}>‹</button>
-        <strong style={{ minWidth: 160, textAlign: 'center' }}>
-          {cursor.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })}
-          {showHijri && monthHijriRange && <div className="h-sub">{monthHijriRange} AH</div>}
+        <button className="btn" onClick={() => shift(-1)}>‹</button>
+        <strong style={{ minWidth: 200, textAlign: 'center' }}>
+          {grid.label}
+          {secondaryLabel && <div className="h-sub">{secondaryLabel}</div>}
         </strong>
-        <button className="btn" onClick={() => setCursor(c => shiftMonth(c, 1))}>›</button>
-        <button className="btn" onClick={() => setCursor(() => { const d = new Date(); d.setDate(1); return d; })}>Today</button>
+        <button className="btn" onClick={() => shift(1)}>›</button>
+        <button className="btn" onClick={goToday}>Today</button>
         <span className="sp" />
-        <label className="btn"><input type="checkbox" style={{ width: 'auto' }} checked={showHijri} onChange={e => setShowHijri(e.target.checked)} /> Hijri</label>
+        <div className="seg" role="group" aria-label="Primary calendar">
+          <button type="button" className={`seg-btn ${primary === 'gregorian' ? 'on' : ''}`} onClick={() => setPrimaryCalendar('gregorian')}>Gregorian</button>
+          <button type="button" className={`seg-btn ${primary === 'hijri' ? 'on' : ''}`} onClick={() => setPrimaryCalendar('hijri')}>Hijri</button>
+        </div>
         <select className="btn" value={venueFilter} onChange={e => setVenueFilter(e.target.value)}>
           <option value="">All venues</option>
           {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
         </select>
-        <button className="btn pri" onClick={() => setModal({ editing: null, newOnDate: dateKeyFromParts(year, month, new Date().getDate()) })}>+ New booking</button>
+        <button className="btn pri" onClick={() => setModal({ editing: null, newOnDate: todayKey })}>+ New booking</button>
       </div>
 
       <div className="bar">
@@ -104,23 +146,25 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
 
       <div className="grid">
         {DOW.map(d => <div key={d} className="dh">{d}</div>)}
-        {Array.from({ length: totalCells }).map((_, i) => {
-          const date = new Date(year, month, 1 - firstDow + i);
-          const key = dateKeyInOrgTz(date.toISOString());
-          const list = byDay.get(key) || [];
-          const hp = showHijri ? getHijriParts(key, hijriOverrides) : null;
+        {grid.cells.map((cell) => {
+          const list = byDay.get(cell.key) || [];
           const deptColor = (deptId) => departments.find(d => d.id === deptId)?.colorHex || '#2563eb';
+          const mainNumber = primary === 'hijri' ? cell.hijri.day : cell.date.getDate();
+          const showMonthName = primary === 'hijri' ? cell.hijri.day === 1 : cell.date.getDate() === 1;
+          const subLabel = primary === 'hijri'
+            ? `${cell.date.getDate()}${showMonthName ? ' ' + cell.date.toLocaleDateString('en-AU', { month: 'short' }) : ''}`
+            : (cell.hijri.year ? `${cell.hijri.day}${showMonthName ? ' ' + (HIJRI_MONTHS.find(m => m.value === cell.hijri.month)?.name || '') : ''}` : '');
           return (
-            <div key={i} className={`cell ${date.getMonth() !== month ? 'out' : ''} ${key === todayKey ? 'today' : ''}`}
-              onClick={() => setModal({ editing: null, newOnDate: key })}>
-              <span className="n">{date.getDate()}</span>
-              {hp && hp.year ? <span className="h-sub">{hp.day}{hp.day === 1 ? ' ' + HIJRI_MONTHS.find(m => m.value === hp.month)?.name : ''}</span> : null}
+            <div key={cell.key} className={`cell ${!cell.inMonth ? 'out' : ''} ${cell.key === todayKey ? 'today' : ''}`}
+              onClick={() => setModal({ editing: null, newOnDate: cell.key })}>
+              <span className="n">{mainNumber}</span>
+              {subLabel ? <span className="h-sub">{subLabel}</span> : null}
               {list.slice(0, 3).map(e => (
                 <button key={e.id} className={`ev ${e.status === 'pending' ? 'pend' : ''} ${e.hasConflict ? 'conflict' : ''}`}
                   style={{ background: deptColor(e.departmentId) }}
                   title={`${e.title} · ${e.venueName || e.venueId}${e.hasConflict ? ' · overlaps another booking' : ''}`}
                   onClick={(ev) => { ev.stopPropagation(); setModal({ editing: e }); }}>
-                  {e.dateBasis === 'h' ? '☾ ' : ''}{new Date(e.startAt).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })} {e.title}
+                  {e.dateBasis === 'hijri' ? '☾ ' : ''}{new Date(e.startAt).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })} {e.title}
                 </button>
               ))}
               {list.length > 3 && <div className="more">+{list.length - 3} more</div>}
@@ -144,15 +188,4 @@ export default function CalendarPage({ events, venues, departments, isAdmin, hij
       )}
     </section>
   );
-}
-
-function shiftMonth(d, delta) {
-  const n = new Date(d);
-  n.setMonth(n.getMonth() + delta);
-  return n;
-}
-
-function dateKeyFromParts(y, m, d) {
-  const dt = new Date(y, m, d);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }

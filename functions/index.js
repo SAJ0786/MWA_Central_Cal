@@ -2,6 +2,7 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
+const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const logger = require('firebase-functions/logger');
 const express = require('express');
@@ -10,6 +11,7 @@ const cors = require('cors');
 const { adjustedGregorianToIslamic, HIJRI_MONTHS } = require('./hijriService');
 const { sendMail, emailSecrets } = require('./mailer');
 const { resolveBufferHours, rangesOverlap, rangesOverlapBuffered } = require('./conflictUtils');
+const { resolveBookingDates } = require('./hijriRecompute');
 
 initializeApp();
 const db = getFirestore();
@@ -29,6 +31,19 @@ async function requireAdmin(auth) {
   const role = snap.exists ? snap.data().role : null;
   if (role !== 'admin') throw new HttpsError('permission-denied', 'Admin role required.');
   return { uid: auth.uid, email: auth.token.email || snap.data()?.email || '' };
+}
+
+/** Non-throwing admin check — used where a submission may come from either a
+ * signed-in admin (who gets an explicit visibility choice) or the public
+ * (whose submissions default to a different visibility). */
+async function isSubmitterAdmin(auth) {
+  if (!auth) return false;
+  const snap = await db.collection('users').doc(auth.uid).get();
+  return snap.exists && snap.data().role === 'admin';
+}
+
+function sanitizeVisibility(value) {
+  return value === 'public' || value === 'private' ? value : null;
 }
 
 async function getActiveDoc(collectionName, id, label) {
@@ -128,6 +143,26 @@ exports.submitBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
   const venue = await getActiveDoc('venues', data.venueId, 'Venue');
   const department = await getActiveDoc('departments', data.departmentId, 'Department');
 
+  // Server-side source of truth for Hijri-based submissions: re-derive the
+  // resolved Gregorian startAt/endAt from the submitted hijriDate + the
+  // *current* moon-sighting overrides, rather than trusting whatever the
+  // client happened to compute (which may be stale by the time it's
+  // received). Gregorian-based submissions are passed through unchanged.
+  const overrides = await getHijriOverrides();
+  const resolvedDates = resolveBookingDates(data, overrides);
+
+  // Visibility rule: public submitters default to 'public' (safe because
+  // pending/unconfirmed bookings are never exposed regardless of visibility —
+  // see sanitizePublicEvent/getPublicEvents/icalFeed, all gated on
+  // status === 'confirmed'). A signed-in admin creating a booking on someone's
+  // behalf may explicitly choose public/private; if they don't specify one,
+  // it defaults to private (the safer choice for admin-entered bookings).
+  const submitterIsAdmin = await isSubmitterAdmin(request.auth);
+  const explicitVisibility = sanitizeVisibility(data.visibility);
+  const visibility = submitterIsAdmin
+    ? (explicitVisibility || 'private')
+    : (explicitVisibility || 'public');
+
   let hasConflict = false;
   let conflictWith = [];
   let eventRef;
@@ -135,7 +170,7 @@ exports.submitBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
   const venueBufferHours = resolveBufferHours(venue);
 
   await db.runTransaction(async (tx) => {
-    const overlaps = await findOverlaps(data.venueId, data.startAt, data.endAt, null, tx, venueBufferHours);
+    const overlaps = await findOverlaps(data.venueId, resolvedDates.startAt, resolvedDates.endAt, null, tx, venueBufferHours);
     hasConflict = overlaps.length > 0;
     conflictWith = overlaps.map(o => o.id);
 
@@ -146,14 +181,14 @@ exports.submitBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
       departmentName: department.name,
       venueId: data.venueId,
       venueName: venue.name,
-      startAt: data.startAt,
-      endAt: data.endAt,
+      startAt: resolvedDates.startAt,
+      endAt: resolvedDates.endAt,
       status: 'pending',
-      // Safe default: private. Public visibility is only ever set by an
-      // admin at approval time (see decideBooking), even if the requester
-      // asked for public listing here.
-      visibility: 'private',
-      requestedVisibility: data.requestPublicListing ? 'public' : 'private',
+      // Pending bookings are always hidden from public views/feeds regardless
+      // of this flag (see the status === 'confirmed' gate above) — this only
+      // determines what happens once/if the booking is later confirmed.
+      visibility,
+      requestedVisibility: visibility,
       dateBasis: data.dateBasis === 'h' ? 'hijri' : 'gregorian',
       hijriDate: data.hijriDate || null,
       contactName: String(data.contactName).slice(0, 200),
@@ -214,7 +249,12 @@ exports.decideBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
     decisionNote: note || '',
     updatedAt: FieldValue.serverTimestamp()
   };
-  if (status === 'confirmed') patch.visibility = visibility === 'public' ? 'public' : 'private';
+  // Visibility is now set at submission time and editable by an admin at any
+  // point (see updateBooking); a decision only overrides it if the admin
+  // explicitly picks one here, otherwise the booking's existing visibility is
+  // preserved rather than being silently reset to private.
+  const explicitVisibility = sanitizeVisibility(visibility);
+  if (explicitVisibility) patch.visibility = explicitVisibility;
 
   await ref.update(patch);
   await writeAudit({
@@ -259,6 +299,11 @@ exports.updateBooking = onCall({ cors: true }, async (request) => {
     updatedAt: FieldValue.serverTimestamp()
   };
 
+  // Admins can change a booking's public/private visibility at any point,
+  // independent of its status — not only at confirm/decision time.
+  const explicitVisibility = sanitizeVisibility(patch.visibility);
+  if (explicitVisibility) update.visibility = explicitVisibility;
+
   if (update.departmentId !== before.departmentId) {
     const dept = await getActiveDoc('departments', update.departmentId, 'Department');
     update.departmentName = dept.name;
@@ -266,6 +311,21 @@ exports.updateBooking = onCall({ cors: true }, async (request) => {
   if (update.venueId !== before.venueId) {
     const venue = await getActiveDoc('venues', update.venueId, 'Venue');
     update.venueName = venue.name;
+  }
+
+  // Preserve-source-date rule: if this booking was Hijri-sourced and the admin
+  // is now setting a startAt/endAt that differs from what its source hijriDate
+  // currently resolves to, that's an explicit manual reschedule — detach it
+  // from the Hijri anchor (switch to dateBasis 'gregorian', clear hijriDate) so
+  // a later moon-sighting adjustment doesn't silently move it again. If the
+  // edit didn't touch the date/time, the Hijri anchor is left untouched.
+  if (before.dateBasis === 'hijri' && before.hijriDate) {
+    const overrides = await getHijriOverrides();
+    const resolvedBefore = resolveBookingDates(before, overrides);
+    if (update.startAt !== resolvedBefore.startAt || update.endAt !== resolvedBefore.endAt) {
+      update.dateBasis = 'gregorian';
+      update.hijriDate = null;
+    }
   }
 
   if (update.venueId !== before.venueId || update.startAt !== before.startAt || update.endAt !== before.endAt) {
@@ -277,7 +337,10 @@ exports.updateBooking = onCall({ cors: true }, async (request) => {
   await ref.update(update);
   await writeAudit({
     entityType: 'event', entityId: eventId, action: 'updated',
-    userId: admin.uid, userEmail: admin.email
+    userId: admin.uid, userEmail: admin.email,
+    diff: update.visibility && update.visibility !== before.visibility
+      ? { visibility: { from: before.visibility || 'private', to: update.visibility } }
+      : null
   });
 
   return { id: eventId, hasConflict: update.hasConflict ?? before.hasConflict };
@@ -385,15 +448,24 @@ app.post('/v1/events', async (req, res) => {
     validateBookingPayload(req.body);
     const venue = await getActiveDoc('venues', req.body.venueId, 'Venue');
     const department = await getActiveDoc('departments', req.body.departmentId, 'Department');
-    const overlaps = await findOverlaps(req.body.venueId, req.body.startAt, req.body.endAt, null, undefined, resolveBufferHours(venue));
+    const overrides = await getHijriOverrides();
+    const resolvedDates = resolveBookingDates(req.body, overrides);
+    const overlaps = await findOverlaps(req.body.venueId, resolvedDates.startAt, resolvedDates.endAt, null, undefined, resolveBufferHours(venue));
+    // Same visibility rule as the submitBooking callable: public submissions
+    // default to 'public' (safe — pending bookings stay hidden regardless),
+    // an authenticated admin caller may explicitly choose, defaulting to
+    // 'private' for admin-entered bookings if unspecified.
+    const admin = await authenticateAdmin(req);
+    const explicitVisibility = sanitizeVisibility(req.body.visibility);
+    const visibility = admin ? (explicitVisibility || 'private') : (explicitVisibility || 'public');
     const ref = db.collection('events').doc();
     await ref.set({
       title: String(req.body.title).slice(0, 200),
       departmentId: req.body.departmentId, departmentName: department.name,
       venueId: req.body.venueId, venueName: venue.name,
-      startAt: req.body.startAt, endAt: req.body.endAt,
-      status: 'pending', visibility: 'private',
-      requestedVisibility: req.body.requestPublicListing ? 'public' : 'private',
+      startAt: resolvedDates.startAt, endAt: resolvedDates.endAt,
+      status: 'pending', visibility,
+      requestedVisibility: visibility,
       dateBasis: req.body.dateBasis === 'h' ? 'hijri' : 'gregorian',
       hijriDate: req.body.hijriDate || null,
       contactName: String(req.body.contactName).slice(0, 200),
@@ -401,7 +473,7 @@ app.post('/v1/events', async (req, res) => {
       contactPhone: req.body.contactPhone || '',
       notes: req.body.notes || '',
       hasConflict: overlaps.length > 0, conflictWith: overlaps.map(o => o.id),
-      createdByUid: null,
+      createdByUid: admin ? admin.uid : null,
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
     });
     await writeAudit({ entityType: 'event', entityId: ref.id, action: 'submitted', note: 'via REST API' });
@@ -434,7 +506,8 @@ app.patch('/v1/events/:id/status', async (req, res) => {
     decidedBy: admin.uid, decidedByEmail: admin.email, decidedAt: FieldValue.serverTimestamp(),
     decisionNote: note || '', updatedAt: FieldValue.serverTimestamp()
   };
-  if (status === 'confirmed') patch.visibility = visibility === 'public' ? 'public' : 'private';
+  const explicitVisibility = sanitizeVisibility(visibility);
+  if (explicitVisibility) patch.visibility = explicitVisibility;
   await ref.update(patch);
   await writeAudit({ entityType: 'event', entityId: req.params.id, action: `status_${status}`, userId: admin.uid, userEmail: admin.email, note });
   res.json({ id: req.params.id, status, hasConflict });
@@ -463,3 +536,61 @@ function mapHttpsErrorCode(code) {
 }
 
 exports.api = onRequest({ cors: true }, app);
+
+// ── Trigger: re-resolve Hijri-sourced bookings after an admin moon-sighting
+// adjustment ──────────────────────────────────────────────────────────────
+// Gregorian-based bookings never move — their stored startAt/endAt is always
+// the source of truth and only their *displayed* Hijri equivalent changes.
+// Hijri-based bookings are fixed to their stored hijriDate {day, month, year};
+// when the admin changes calendarSettings/hijri (a new/updated/removed
+// moon-sighting override), every Hijri-sourced booking's resolved Gregorian
+// startAt/endAt is recomputed here so its calendar placement, conflict
+// detection and exports/API all reflect the new adjustment, without ever
+// touching the booking's fixed Hijri day.
+exports.onHijriSettingsChanged = onDocumentWritten('calendarSettings/hijri', async (event) => {
+  const beforeOverrides = event.data?.before?.exists ? (event.data.before.data().overrides || []) : [];
+  const afterOverrides = event.data?.after?.exists ? (event.data.after.data().overrides || []) : [];
+  if (JSON.stringify(beforeOverrides) === JSON.stringify(afterOverrides)) return; // no-op write, skip
+
+  const snap = await db.collection('events').where('dateBasis', '==', 'hijri').get();
+  if (snap.empty) return;
+
+  let batch = db.batch();
+  let opsInBatch = 0;
+  const auditEntries = [];
+
+  for (const doc of snap.docs) {
+    const before = doc.data();
+    if (!before.hijriDate) continue;
+    const resolved = resolveBookingDates(before, afterOverrides);
+    if (!resolved.resolved || (resolved.startAt === before.startAt && resolved.endAt === before.endAt)) continue;
+
+    const patch = { startAt: resolved.startAt, endAt: resolved.endAt, updatedAt: FieldValue.serverTimestamp() };
+    if (ACTIVE_FOR_CONFLICTS.includes(before.status)) {
+      const bufferHours = resolveBufferHours(await (async () => {
+        const vSnap = await db.collection('venues').doc(before.venueId).get();
+        return vSnap.exists ? vSnap.data() : null;
+      })());
+      const overlaps = await findOverlaps(before.venueId, resolved.startAt, resolved.endAt, doc.id, undefined, bufferHours);
+      patch.hasConflict = overlaps.length > 0;
+      patch.conflictWith = overlaps.map(o => o.id);
+    }
+
+    batch.update(doc.ref, patch);
+    opsInBatch += 1;
+    auditEntries.push({
+      entityType: 'event', entityId: doc.id, action: 'hijri_date_resolved',
+      note: 'Resolved Gregorian date updated for a Hijri-sourced booking after a moon-sighting adjustment change.',
+      diff: { from: { startAt: before.startAt, endAt: before.endAt }, to: { startAt: resolved.startAt, endAt: resolved.endAt } }
+    });
+
+    if (opsInBatch >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      opsInBatch = 0;
+    }
+  }
+
+  if (opsInBatch > 0) await batch.commit();
+  for (const entry of auditEntries) await writeAudit(entry);
+});

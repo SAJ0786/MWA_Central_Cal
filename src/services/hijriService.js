@@ -66,7 +66,7 @@ function fromMonthIndex(idx) {
   return { year: Math.floor(idx / 12), month: ((idx % 12) + 12) % 12 + 1 };
 }
 
-function addHijriMonths(year, month, delta) {
+export function addHijriMonths(year, month, delta) {
   return fromMonthIndex(monthIndex(year, month) + delta);
 }
 

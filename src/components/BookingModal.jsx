@@ -8,12 +8,20 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 export default function BookingModal({
   open, onClose, venues, departments, editing, isAdmin, hijriOverrides, onSaved, initialDate
 }) {
-  const [form, setForm] = useState(() => emptyForm(editing, initialDate));
+  const [form, setForm] = useState(() => emptyForm(editing, initialDate, isAdmin));
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
+  // Disables the submit button after a *successful* submission until the
+  // user edits any field again — prevents accidental double-submits while
+  // still letting a failed attempt be retried immediately (see `set` below,
+  // which clears this on every field edit).
+  const [locked, setLocked] = useState(false);
 
-  useEffect(() => { setForm(emptyForm(editing, initialDate)); setErr(''); setOk(''); }, [editing, open, initialDate]);
+  useEffect(() => {
+    setForm(emptyForm(editing, initialDate, isAdmin));
+    setErr(''); setOk(''); setLocked(false);
+  }, [editing, open, initialDate, isAdmin]);
 
   const gregorianDate = useMemo(() => {
     if (form.basis === 'g') return form.date;
@@ -31,7 +39,7 @@ export default function BookingModal({
 
   if (!open) return null;
 
-  function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
+  function set(k, v) { setForm(f => ({ ...f, [k]: v })); setLocked(false); }
 
   async function handlePublicSubmit(e) {
     e.preventDefault();
@@ -50,12 +58,13 @@ export default function BookingModal({
         dateBasis: form.basis,
         hijriDate: form.basis === 'h' ? { day: Number(form.hDay), month: Number(form.hMonth), year: Number(form.hYear) } : null,
         contactName: form.contactName, contactEmail: form.contactEmail, contactPhone: form.contactPhone,
-        notes: form.notes, requestPublicListing: !!form.requestPublicListing
+        notes: form.notes, visibility: form.visibility
       };
       const res = await submitBooking(payload);
       setOk(res?.hasConflict
         ? 'Request submitted as Pending. Note: it overlaps another booking at this venue — the admin team will review it.'
         : 'Request submitted as Pending. You will be notified once it is reviewed.');
+      setLocked(true);
       onSaved && onSaved();
     } catch (e2) {
       setErr(e2?.message || 'Could not submit the booking. Please try again.');
@@ -72,9 +81,11 @@ export default function BookingModal({
       await updateBooking(editing.id, {
         title: form.title, departmentId: form.departmentId, venueId: form.venueId,
         startAt, endAt, notes: form.notes,
-        contactName: form.contactName, contactEmail: form.contactEmail, contactPhone: form.contactPhone
+        contactName: form.contactName, contactEmail: form.contactEmail, contactPhone: form.contactPhone,
+        visibility: form.visibility
       });
       setOk('Booking updated.');
+      setLocked(true);
       onSaved && onSaved();
     } catch (e2) {
       setErr(e2?.message || 'Could not save changes.');
@@ -87,7 +98,7 @@ export default function BookingModal({
     try {
       await decideBooking({
         eventId: editing.id, status,
-        visibility: status === 'confirmed' ? (form.visibility || 'private') : undefined,
+        visibility: form.visibility,
         note: form.decisionNote || ''
       });
       setOk(`Booking marked ${status}.`);
@@ -138,6 +149,11 @@ export default function BookingModal({
               <label>Date</label>
               <input type="date" value={form.date} onChange={e => set('date', e.target.value)} required />
               {hijriPreview && <div className="muted">≈ {hijriPreview} (moon-sighting adjustment applied)</div>}
+              {editing && editing.dateBasis === 'hijri' && (
+                <div className="muted">
+                  This booking is anchored to its Hijri date — its Gregorian date is recomputed automatically if the moon-sighting adjustment changes. Changing the date/time here will detach it and fix it to this Gregorian date instead.
+                </div>
+              )}
             </>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr 90px', gap: 10 }}>
@@ -171,12 +187,17 @@ export default function BookingModal({
           <label>Notes (optional)</label>
           <textarea rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} />
 
-          {!editing && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
-              <input type="checkbox" style={{ width: 'auto' }} checked={form.requestPublicListing}
-                onChange={e => set('requestPublicListing', e.target.checked)} />
-              Request a public listing (visible to the public once approved; otherwise kept private)
-            </label>
+          {/* Visibility: public submitters default to Public (pending bookings stay
+              hidden from public views regardless, until confirmed); an admin
+              creating a booking defaults to Private and may choose either; an
+              admin editing an existing booking can change it at any time. */}
+          <label>Visibility {editing ? '' : '(once confirmed)'}</label>
+          <select value={form.visibility} onChange={e => set('visibility', e.target.value)} disabled={!isAdmin && !!editing}>
+            <option value="public">Public (shown on the community calendar)</option>
+            <option value="private">Private (internal only)</option>
+          </select>
+          {!isAdmin && !editing && (
+            <div className="muted">Your request stays hidden until an admin confirms it, regardless of this setting.</div>
           )}
 
           {editing && (
@@ -184,14 +205,8 @@ export default function BookingModal({
               <div><b>Status:</b> <span className={`tag st-${editing.status}`}>{editing.status}</span>
                 {editing.hasConflict && <span className="conflict-badge">Overlaps another booking at this venue</span>}
               </div>
-              <div className="muted">Visibility: {editing.visibility || 'private'}</div>
               {isAdmin && editing.status === 'pending' && (
                 <>
-                  <label>Visibility if confirmed</label>
-                  <select value={form.visibility} onChange={e => set('visibility', e.target.value)}>
-                    <option value="private">Private (internal only)</option>
-                    <option value="public">Public (shown on public calendar)</option>
-                  </select>
                   <label>Decision note (optional)</label>
                   <input value={form.decisionNote} onChange={e => set('decisionNote', e.target.value)} />
                   <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -212,8 +227,8 @@ export default function BookingModal({
           {ok && <div className="ok">{ok}</div>}
 
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-            {(isAdmin && editing) ? <button className="btn pri" disabled={busy} type="submit">Save changes</button>
-              : !editing ? <button className="btn pri" disabled={busy} type="submit">Submit request</button> : null}
+            {(isAdmin && editing) ? <button className="btn pri" disabled={busy || locked} type="submit">Save changes</button>
+              : !editing ? <button className="btn pri" disabled={busy || locked} type="submit">Submit request</button> : null}
             <button type="button" className="btn" onClick={onClose}>Close</button>
           </div>
         </form>
@@ -222,10 +237,8 @@ export default function BookingModal({
   );
 }
 
-function emptyForm(editing, initialDate) {
+function emptyForm(editing, initialDate, isAdmin) {
   if (editing) {
-    const d = new Date(editing.startAt);
-    const e = new Date(editing.endAt);
     const dateKey = editing.startAt ? new Date(editing.startAt).toISOString().slice(0, 10) : todayStr();
     return {
       title: editing.title || '', departmentId: editing.departmentId || '', venueId: editing.venueId || '',
@@ -233,7 +246,7 @@ function emptyForm(editing, initialDate) {
       hDay: '', hMonth: '1', hYear: '',
       start: isoTime(editing.startAt), end: isoTime(editing.endAt),
       contactName: editing.contactName || '', contactEmail: editing.contactEmail || '', contactPhone: editing.contactPhone || '',
-      notes: editing.notes || '', requestPublicListing: editing.visibility === 'public',
+      notes: editing.notes || '',
       visibility: editing.visibility || 'private', decisionNote: ''
     };
   }
@@ -241,8 +254,10 @@ function emptyForm(editing, initialDate) {
     title: '', departmentId: '', venueId: '', basis: 'g', date: initialDate || todayStr(),
     hDay: '', hMonth: '1', hYear: '',
     start: '09:00', end: '10:00',
-    contactName: '', contactEmail: '', contactPhone: '', notes: '', requestPublicListing: false,
-    visibility: 'private', decisionNote: ''
+    contactName: '', contactEmail: '', contactPhone: '', notes: '',
+    // Safe defaults per the visibility rule: public submitters default to
+    // public (harmless while pending), admin-created bookings default private.
+    visibility: isAdmin ? 'private' : 'public', decisionNote: ''
   };
 }
 

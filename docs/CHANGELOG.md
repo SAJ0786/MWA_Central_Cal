@@ -5,7 +5,7 @@ build + deploy, and any explicit process directives from the user that affect ho
 changes are handled (e.g. deploy/push timing). Not a full release changelog — see git
 history for that; this is for the specific instructions that aren't obvious from a diff.
 
-## Process directive: no deploy during iterative changes (active)
+## Process directive: no deploy during iterative changes (lifted)
 
 The user asked that, while they're sending a series of follow-up change requests, each
 change should be **implemented and validated but not deployed to Firebase**, and that
@@ -15,9 +15,72 @@ part of a specific request) or there's a clear repo-workflow need, but is otherw
 held back during this period rather than assumed from the original MVP push/deploy
 authorization.
 
-**Current status:** no `firebase deploy` has been run since this directive was given.
-Changes below are implemented, linted, and tested locally only, pending the user's
-go-ahead to push/deploy.
+**Status:** this directive is now **lifted** — the user explicitly said "now implement
+everything and deploy and push to git" once the batch below was ready. See the entry
+below for exactly what was pushed/deployed and when.
+
+## Batch: Hijri source-date anchoring, calendar primary-toggle, visibility control, submit-lock, sign-in polish
+
+**Requested by user, across several follow-up messages (implemented under the no-deploy
+directive above, then pushed/deployed once it was lifted):**
+
+1. **Hijri source-date preservation.** A Hijri-based booking's `hijriDate {day,month,year}`
+   is now the durable source of truth; its resolved `startAt`/`endAt` is (re)computed
+   server-side from the current moon-sighting overrides — at submission (`submitBooking`,
+   REST `POST /v1/events`) and whenever an admin changes the Hijri overrides (new
+   Firestore trigger `onHijriSettingsChanged`, batched). A Gregorian-based booking never
+   moves; only its *displayed* Hijri equivalent is recomputed on the fly. An admin's own
+   explicit date/time edit (`updateBooking`) that diverges from the current Hijri
+   resolution detaches the booking to `dateBasis: 'gregorian'` (one-way) so it's never
+   silently moved again after a deliberate manual reschedule.
+   - New: `functions/hijriRecompute.js` (`resolveBookingDates`) + its tests; `functions/dateUtils.js`
+     (`toOrgTimeParts`, `localToUtcIso`); `functions/hijriService.js` gained
+     `jdnToGregorian`/`getHijriMonthLength`/`adjustedIslamicToGregorian`.
+   - **Bug fixed along the way:** `localToUtcIso` (both `functions/` and `src/utils/`
+     copies) only converted correctly when the *host process's own* system timezone was
+     UTC — true for Cloud Functions, false on a Sydney-timezone dev machine, where it
+     silently no-op'd. Rewritten to be timezone-independent (`Intl.DateTimeFormat`
+     against the explicit `Australia/Sydney` zone), verified by test.
+2. **Calendar primary-toggle & responsive grid.** `src/utils/hijriCalendarGrid.js` (new,
+   tested — 6 cases) builds a month grid from either calendar outward: Gregorian-primary
+   (28–31 days) or Hijri-primary (29/30 days, varying with overrides), not by relabeling a
+   fixed Gregorian month. `src/pages/CalendarPage.jsx` rewritten: a Gregorian/Hijri segmented
+   toggle drives navigation and in-cell day numbering; every cell always shows both date
+   forms; weekday columns/order are unchanged by the toggle (per the user's instruction).
+   `src/styles.css`: calendar grid is now fluid (`clamp()`-sized cells, wider `main`,
+   mobile/desktop media-query tuning) instead of a fixed max-width.
+3. **Booking visibility is now admin-editable at any time**, not only at confirm. Public
+   submissions default `visibility: public` (safe — pending bookings are hidden from all
+   public reads/feeds regardless, via the existing `status === 'confirmed'` gate); an
+   admin-created booking defaults `private`. `decideBooking`/REST status-patch now only
+   change visibility if one is explicitly given (previously silently reset to `private`
+   unless `public` was passed at confirm time — a real behaviour fix, not just an
+   addition). `updateBooking` accepts `visibility` with its own audit diff entry.
+   `src/components/BookingModal.jsx` gained a single Visibility selector used consistently
+   everywhere (replacing the old "request a public listing" checkbox + separate
+   confirm-time selector).
+4. **Submit-disable-after-success.** The booking form's submit button disables after a
+   *successful* submission/save and re-enables the instant any field is edited; a failed
+   attempt stays immediately retryable. Confirm/Reject/Cancel/Close are unaffected.
+5. **Admin sign-in screen polish.** `LoginCard` in `src/pages/AdminPage.jsx` restyled
+   (centred card, subtle shadow, clearer heading/subtext, full-width submit, focus
+   outline) — no change to the `login`/`logout` calls, field semantics, `required`
+   attributes, or accessibility (labels now explicitly associated via `htmlFor`/`id`,
+   `role="alert"` added to the error message).
+
+**Checks run:** `node --test` in `functions/` (11/11 pass, including the 4 new
+`hijriRecompute` cases); `node --test` on `src/utils/hijriCalendarGrid.test.js` (6/6
+pass, new); `npm run build` (frontend, clean build, twice — once after the component
+rewrites, once after the CSS/login polish).
+
+**Docs updated:** `docs/DATA_MODEL.md` (Hijri anchoring/recompute rule, corrected the
+previous "resolved once at submission" claim; visibility default-by-role rule), `docs/API.md`
+(visibility defaults on `POST /v1/events`, `PATCH /v1/events/:id/status` preserve-unless-
+explicit rule, new `updateBooking` visibility note).
+
+**Git/deploy outcome:** see the dated entry immediately below this one for the exact
+commit hash, push result, and deploy result once that step was performed.
+
 
 ## 2024 — Venue buffer: minutes → hours, post-booking-only
 

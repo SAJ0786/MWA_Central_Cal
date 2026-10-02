@@ -15,11 +15,11 @@ always renders them in the organisation timezone, `Australia/Sydney`.
 | `venueName` | string | denormalized |
 | `startAt`, `endAt` | string (ISO UTC) | canonical Gregorian range used for conflict checks, iCal and the REST API |
 | `status` | `pending` \| `confirmed` \| `rejected` \| `cancelled` | workflow: Pending → Confirmed/Rejected, or Cancelled from either |
-| `visibility` | `private` \| `public` | **default `private`**; only ever set to `public` by an admin at confirm time (see Visibility decision below) |
-| `requestedVisibility` | `private` \| `public` | the requester's preference, for the admin's reference only — never authoritative |
+| `visibility` | `private` \| `public` | **public submissions default `public`; admin-created bookings default `private`**; always editable by an admin, at any time, independent of status (see Visibility decision below) |
+| `requestedVisibility` | `private` \| `public` | historical/audit record of the visibility chosen at submission time (equals `visibility` as first set; not updated by later admin edits) |
 | `dateBasis` | `gregorian` \| `hijri` | how the requester entered the date |
-| `hijriDate` | `{day, month, year}` \| null | source Hijri date if `dateBasis = hijri`; re-resolved to `startAt`/`endAt` at submission time using the current moon-sighting adjustment |
-| `hasConflict` | boolean | true if another pending/confirmed booking at the same venue overlaps; **never blocks submission or confirmation** |
+| `hijriDate` | `{day, month, year}` \| null | source Hijri date if `dateBasis = hijri`. This is the fixed source of truth for Hijri-based bookings: `startAt`/`endAt` are the *resolved* Gregorian instant, recomputed from `hijriDate` (preserving the original local Australia/Sydney time-of-day) whenever the admin's moon-sighting overrides change — not just once at submission. An admin's own explicit date/time edit (`updateBooking` with a differing `startAt`/`endAt`) detaches the booking from its Hijri anchor (switches `dateBasis` to `gregorian`, clears `hijriDate`) so it is never silently moved again. Gregorian-based bookings (`dateBasis = gregorian`) never move — only their *displayed* Hijri equivalent is recomputed on the fly. |
+| `hasConflict` | boolean | true if another pending/confirmed booking at the same venue overlaps (see venue buffer below); **never blocks submission or confirmation** |
 | `conflictWith` | string[] | ids of the overlapping booking(s) |
 | `contactName`, `contactEmail`, `contactPhone` | string | never exposed to public reads |
 | `notes` | string | never exposed to public reads |
@@ -29,11 +29,18 @@ always renders them in the organisation timezone, `Australia/Sydney`.
 
 ### Visibility decision
 
-The brief asked for a safe default with the option of an explicit approval-time decision.
-This MVP does both: every booking is created `visibility: private`, and an admin can only
-switch it to `public` as part of confirming it (`decideBooking` with `visibility: 'public'`).
-Private hire details are therefore never visible publicly, and nothing becomes public
-without an explicit admin action at the moment it's confirmed.
+A pending/unconfirmed booking is **never** exposed to public views or feeds regardless of
+its `visibility` flag — `getPublicEvents`, `GET /v1/events` (unauthenticated), and the iCal
+feed all gate on `status === 'confirmed'` first. This makes it safe for `visibility` itself
+to default differently by submitter: public (unauthenticated) booking requests default to
+`visibility: 'public'` (since privacy is enforced by the status gate, not this flag, while
+pending); an admin creating a booking on someone's behalf defaults to `visibility: 'private'`
+and may explicitly choose either in the booking form. An admin can change a booking's
+visibility at any time afterwards — via `updateBooking` (general edit) or as part of
+`decideBooking` (confirm/reject/cancel) — and every visibility change is recorded in the
+audit log. Private hire details are therefore never visible publicly regardless of this
+flag's value while a booking is pending, and an admin always has the final, explicit say
+over what's shown once it's confirmed.
 
 ## `venues`
 

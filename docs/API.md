@@ -37,24 +37,36 @@ Query params: `from`, `to` (ISO date/time, inclusive bounds on `startAt`), `venu
 
 ## `POST /v1/events`
 
-Public — submits a booking request. Body: `title`, `departmentId`, `venueId`, `startAt`,
-`endAt`, `contactName`, `contactEmail`, optional `contactPhone`, `notes`,
-`dateBasis` (`"g"`/`"h"`), `hijriDate`, `requestPublicListing`.
+Public (or admin, with an `Authorization: Bearer <token>`) — submits a booking request.
+Body: `title`, `departmentId`, `venueId`, `startAt`, `endAt`, `contactName`,
+`contactEmail`, optional `contactPhone`, `notes`, `dateBasis` (`"g"`/`"h"`), `hijriDate`,
+optional `visibility` (`"public"`/`"private"`).
 
 - `201 { "id": "...", "status": "pending", "hasConflict": false }` — **always created as
   Pending**; an overlap at the same venue is flagged in `hasConflict`/`conflictWith` but
   **never rejected**, per the brief's conflict-handling requirement. Overlap detection
   honours each venue's `bufferHours` (applied only after an *existing* booking's end —
   see docs/DATA_MODEL.md); the buffer never blocks the incoming submission itself.
+- `visibility` defaults to `public` for an unauthenticated (public) submission and to
+  `private` for an authenticated admin submission if not explicitly given — see
+  docs/DATA_MODEL.md's visibility decision. A pending booking is never exposed to public
+  reads regardless of this flag.
 - `400` for missing fields / invalid time range. `404` if `venueId`/`departmentId` don't
   exist.
 
 ## `PATCH /v1/events/:id/status`
 
 Admin only. Body: `{ "status": "confirmed" | "rejected" | "cancelled", "visibility"?: "public"|"private", "note"?: string }`.
-Confirming an event re-checks for conflicts and sets `visibility` (defaults to
-`private` if omitted — see docs/DATA_MODEL.md's visibility decision). Writes an audit log
-entry and best-effort emails the requester.
+Confirming an event re-checks for conflicts. `visibility` only changes if explicitly
+given; otherwise the booking's existing visibility (set at submission, or by a prior
+admin edit) is preserved unchanged — see docs/DATA_MODEL.md's visibility decision. Writes
+an audit log entry and best-effort emails the requester.
+
+## `PATCH /v1/events/:id` (via the `updateBooking` callable from the app)
+
+Admin only. General edit of a booking's core fields, including `visibility`
+(`"public"`/`"private"`) — an admin may change visibility at any time, independent of
+status. Every visibility change is recorded in the audit log.
 
 ## `GET /v1/availability?venue=<id>&date=<YYYY-MM-DD>`
 

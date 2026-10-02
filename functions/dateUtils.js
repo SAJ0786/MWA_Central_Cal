@@ -1,11 +1,13 @@
-import { ORG_TIMEZONE } from '../firebase/firebaseConfig';
-import { getHijriDisplay } from '../services/hijriService';
+// Shared date/timezone helpers for Cloud Functions. Pure, dependency-free so
+// they can be unit-tested directly (see hijriRecompute.test.js) and ported in
+// lockstep with the client's src/utils/dateUtils.js.
+const ORG_TIMEZONE = 'Australia/Sydney';
 
 /** Combine a date (YYYY-MM-DD) + time (HH:MM) in the org timezone into a UTC ISO string.
  * Computed via Intl.DateTimeFormat against an explicit IANA zone, so it is correct
- * regardless of the browser/host's own system timezone (unlike a naive
- * toLocaleString/round-trip diff, which only works when the host itself runs in UTC). */
-export function localToUtcIso(dateStr, timeStr, timeZone = ORG_TIMEZONE) {
+ * regardless of the host process's own system timezone (unlike a naive
+ * toLocaleString/round-trip diff, which only works when the process itself runs in UTC). */
+function localToUtcIso(dateStr, timeStr, timeZone = ORG_TIMEZONE) {
   if (!dateStr || !timeStr) return null;
   const [y, m, d] = dateStr.split('-').map(Number);
   const [hh, mm] = timeStr.split(':').map(Number);
@@ -24,22 +26,12 @@ export function localToUtcIso(dateStr, timeStr, timeZone = ORG_TIMEZONE) {
   return new Date(asUtc - offset).toISOString();
 }
 
-export function formatInOrgTz(iso, opts = {}) {
-  if (!iso) return '';
-  return new Date(iso).toLocaleString('en-AU', { timeZone: ORG_TIMEZONE, ...opts });
+/** Split an ISO instant into its org-timezone date (YYYY-MM-DD) and time (HH:MM) parts. */
+function toOrgTimeParts(iso, timeZone = ORG_TIMEZONE) {
+  const d = new Date(iso);
+  const dateStr = d.toLocaleDateString('en-CA', { timeZone });
+  const timeStr = d.toLocaleTimeString('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false });
+  return { dateStr, timeStr };
 }
 
-export function dateKeyInOrgTz(iso) {
-  if (!iso) return '';
-  return new Date(iso).toLocaleDateString('en-CA', { timeZone: ORG_TIMEZONE });
-}
-
-export function hijriLabel(iso, overrides = []) {
-  const key = dateKeyInOrgTz(iso);
-  return key ? getHijriDisplay(key, overrides) : '';
-}
-
-/** Two [start,end) ranges overlap. */
-export function rangesOverlap(aStart, aEnd, bStart, bEnd) {
-  return new Date(aStart) < new Date(bEnd) && new Date(aEnd) > new Date(bStart);
-}
+module.exports = { ORG_TIMEZONE, localToUtcIso, toOrgTimeParts };

@@ -55,18 +55,20 @@ function LoginCard({ login }) {
   }
 
   return (
-    <section>
-      <div className="card" style={{ maxWidth: 360, margin: '40px auto' }}>
-        <h3 style={{ marginTop: 0 }}>Admin sign in</h3>
+    <section className="login-wrap">
+      <div className="card login-card">
+        <div className="login-badge" aria-hidden="true">🔐</div>
+        <h3 className="login-title">Admin sign in</h3>
+        <p className="muted login-sub">Sign in to review booking requests, manage venues and departments, and adjust Hijri settings.</p>
         <form onSubmit={submit}>
-          <label>Email</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
-          <label>Password</label>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
-          {err && <div className="err">{err}</div>}
-          <button className="btn pri" style={{ marginTop: 14 }} disabled={busy} type="submit">Sign in</button>
+          <label htmlFor="admin-email">Email</label>
+          <input id="admin-email" type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required />
+          <label htmlFor="admin-password">Password</label>
+          <input id="admin-password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required />
+          {err && <div className="err" role="alert">{err}</div>}
+          <button className="btn pri login-submit" disabled={busy} type="submit">{busy ? 'Signing in…' : 'Sign in'}</button>
         </form>
-        <p className="muted" style={{ marginTop: 14 }}>
+        <p className="muted login-footnote">
           Admin accounts are created in the Firebase console (or by an existing admin); there is no public sign-up.
         </p>
       </div>

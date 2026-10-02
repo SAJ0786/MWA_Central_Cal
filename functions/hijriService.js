@@ -26,6 +26,20 @@ function gregorianToJdn(year, month, day) {
     + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
 }
 
+function jdnToGregorian(jdn) {
+  const a = jdn + 32044;
+  const b = Math.floor((4 * a + 3) / 146097);
+  const c = a - Math.floor((146097 * b) / 4);
+  const d = Math.floor((4 * c + 3) / 1461);
+  const e = c - Math.floor((1461 * d) / 4);
+  const m = Math.floor((5 * e + 2) / 153);
+  return {
+    day: e - Math.floor((153 * m + 2) / 5) + 1,
+    month: m + 3 - 12 * Math.floor(m / 10),
+    year: 100 * b + d - 4800 + Math.floor(m / 10)
+  };
+}
+
 function islamicToJdnAstro(year, month, day) {
   return day + Math.ceil(29.5 * (month - 1)) + (year - 1) * 354
     + Math.floor((3 + 11 * year) / 30) + 1948439;
@@ -107,6 +121,24 @@ function monthStartJdn(hYear, hMonth, overrides = []) {
   return islamicToJdnAstro(Number(hYear), Number(hMonth), 1) + deltaForMonth(hYear, hMonth, overrides);
 }
 
+function getHijriMonthLength(hYear, hMonth, overrides = []) {
+  const next = addHijriMonths(Number(hYear), Number(hMonth), 1);
+  return monthStartJdn(next.year, next.month, overrides) - monthStartJdn(Number(hYear), Number(hMonth), overrides);
+}
+
+/** Convert Hijri (y,m,d) to Gregorian {year,month,day}. Inverse of adjustedGregorianToIslamic,
+ * using the same overrides so round-tripping a Hijri source date always agrees with the
+ * forward conversion used for display. */
+function adjustedIslamicToGregorian(hYear, hMonth, hDay, overrides = []) {
+  try {
+    if (!hYear || !hMonth || !hDay) return { year: 0, month: 0, day: 0 };
+    const startJdn = monthStartJdn(Number(hYear), Number(hMonth), sortOverrides(overrides));
+    return jdnToGregorian(startJdn + (Number(hDay) - 1));
+  } catch {
+    return { year: 0, month: 0, day: 0 };
+  }
+}
+
 function adjustedGregorianToIslamic(gYear, gMonth, gDay, overrides = []) {
   try {
     if (!gYear || !gMonth || !gDay) return { year: 0, month: 0, day: 0 };
@@ -134,4 +166,4 @@ function getHijriParts(gregorianDateStr, overrides = []) {
   return adjustedGregorianToIslamic(y, m, d, overrides);
 }
 
-module.exports = { HIJRI_MONTHS, adjustedGregorianToIslamic, getHijriParts };
+module.exports = { HIJRI_MONTHS, adjustedGregorianToIslamic, adjustedIslamicToGregorian, getHijriMonthLength, getHijriParts };
