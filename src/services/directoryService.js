@@ -24,7 +24,7 @@ export async function createVenue(data) {
     capacity: Number(data.capacity) || null,
     hireable: data.hireable !== false,
     openingHours: data.openingHours || '',
-    bufferMinutes: Number(data.bufferMinutes) || 0,
+    bufferHours: Number(data.bufferHours) || 0,
     active: data.active !== false
   });
 }

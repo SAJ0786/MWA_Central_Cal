@@ -37,8 +37,25 @@ without an explicit admin action at the moment it's confirmed.
 
 ## `venues`
 
-`name`, `capacity`, `hireable`, `openingHours`, `bufferMinutes`, `active`. Public read
+`name`, `capacity`, `hireable`, `openingHours`, `bufferHours`, `active`. Public read
 (needed for the booking form), admin write.
+
+`bufferHours` is a fractional number of hours (e.g. `0.5`) applied **only after** a
+booking ends — an active (`pending`/`confirmed`) booking occupies `[startAt, endAt +
+bufferHours]` for conflict-detection purposes. The buffer never extends backwards before
+a booking's start, and it never blocks a new submission: it only affects whether
+`hasConflict`/`conflictWith` is set on bookings checked against it. See
+`functions/index.js`'s `findOverlaps`/`rangesOverlapBuffered`.
+
+> Migration note: this field was renamed from `bufferMinutes` (whole minutes, no buffer
+> semantics defined). No destructive Firestore migration was run or is required — every
+> read path (`functions/index.js`'s `resolveBufferHours`, and the admin UI's
+> `resolveVenueBufferHours`) resolves `bufferHours` first, falls back to converting a
+> legacy `bufferMinutes` value (`/ 60`), and defaults to `0` if neither is present. New/
+> edited venues are written with `bufferHours` only. If you want to physically migrate
+> old documents, a one-off script can `set({ bufferHours: bufferMinutes / 60 }, { merge:
+> true })` and remove `bufferMinutes`, but it's optional — the read-time fallback is safe
+> indefinitely.
 
 ## `departments`
 

@@ -9,6 +9,7 @@ const cors = require('cors');
 
 const { adjustedGregorianToIslamic, HIJRI_MONTHS } = require('./hijriService');
 const { sendMail, emailSecrets } = require('./mailer');
+const { resolveBufferHours, rangesOverlap, rangesOverlapBuffered } = require('./conflictUtils');
 
 initializeApp();
 const db = getFirestore();
@@ -21,9 +22,6 @@ const ACTIVE_FOR_CONFLICTS = ['pending', 'confirmed'];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function rangesOverlap(aStart, aEnd, bStart, bEnd) {
-  return aStart < bEnd && aEnd > bStart;
-}
 
 async function requireAdmin(auth) {
   if (!auth) throw new HttpsError('unauthenticated', 'Sign in as an admin to perform this action.');
@@ -40,8 +38,18 @@ async function getActiveDoc(collectionName, id, label) {
   return { id: snap.id, ...snap.data() };
 }
 
-/** Find other pending/confirmed bookings at the same venue that overlap. Read-only (safe outside or inside a transaction). */
-async function findOverlaps(venueId, startAt, endAt, excludeId, tx) {
+/** Find other pending/confirmed bookings at the same venue that overlap, honouring the
+ * venue's post-booking buffer on each *existing* booking's end time. Read-only (safe
+ * outside or inside a transaction). Pass `bufferHours` if already known (e.g. the venue
+ * doc was already fetched); otherwise it's resolved from the venue doc here. */
+async function findOverlaps(venueId, startAt, endAt, excludeId, tx, bufferHours) {
+  let effectiveBufferHours = bufferHours;
+  if (effectiveBufferHours === undefined) {
+    const venueRef = db.collection('venues').doc(venueId);
+    const venueSnap = tx ? await tx.get(venueRef) : await venueRef.get();
+    effectiveBufferHours = resolveBufferHours(venueSnap.exists ? venueSnap.data() : null);
+  }
+
   const q = db.collection('events')
     .where('venueId', '==', venueId)
     .where('status', 'in', ACTIVE_FOR_CONFLICTS);
@@ -50,7 +58,9 @@ async function findOverlaps(venueId, startAt, endAt, excludeId, tx) {
   snap.forEach(doc => {
     if (doc.id === excludeId) return;
     const d = doc.data();
-    if (rangesOverlap(startAt, endAt, d.startAt, d.endAt)) overlaps.push({ id: doc.id, title: d.title });
+    if (rangesOverlapBuffered(startAt, endAt, d.startAt, d.endAt, effectiveBufferHours)) {
+      overlaps.push({ id: doc.id, title: d.title });
+    }
   });
   return overlaps;
 }
@@ -122,8 +132,10 @@ exports.submitBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
   let conflictWith = [];
   let eventRef;
 
+  const venueBufferHours = resolveBufferHours(venue);
+
   await db.runTransaction(async (tx) => {
-    const overlaps = await findOverlaps(data.venueId, data.startAt, data.endAt, null, tx);
+    const overlaps = await findOverlaps(data.venueId, data.startAt, data.endAt, null, tx, venueBufferHours);
     hasConflict = overlaps.length > 0;
     conflictWith = overlaps.map(o => o.id);
 
@@ -373,7 +385,7 @@ app.post('/v1/events', async (req, res) => {
     validateBookingPayload(req.body);
     const venue = await getActiveDoc('venues', req.body.venueId, 'Venue');
     const department = await getActiveDoc('departments', req.body.departmentId, 'Department');
-    const overlaps = await findOverlaps(req.body.venueId, req.body.startAt, req.body.endAt, null);
+    const overlaps = await findOverlaps(req.body.venueId, req.body.startAt, req.body.endAt, null, undefined, resolveBufferHours(venue));
     const ref = db.collection('events').doc();
     await ref.set({
       title: String(req.body.title).slice(0, 200),
@@ -428,6 +440,8 @@ app.patch('/v1/events/:id/status', async (req, res) => {
   res.json({ id: req.params.id, status, hasConflict });
 });
 
+// Note: this reports raw (unbuffered) booked windows for day-level display, not the
+// buffered conflict rule used by hasConflict/conflictWith above — see docs/API.md.
 app.get('/v1/availability', async (req, res) => {
   const { venue, date } = req.query;
   if (!venue || !date) return res.status(400).json({ error: 'venue and date (YYYY-MM-DD) are required.' });

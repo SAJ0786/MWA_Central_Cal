@@ -43,7 +43,9 @@ Public — submits a booking request. Body: `title`, `departmentId`, `venueId`, 
 
 - `201 { "id": "...", "status": "pending", "hasConflict": false }` — **always created as
   Pending**; an overlap at the same venue is flagged in `hasConflict`/`conflictWith` but
-  **never rejected**, per the brief's conflict-handling requirement.
+  **never rejected**, per the brief's conflict-handling requirement. Overlap detection
+  honours each venue's `bufferHours` (applied only after an *existing* booking's end —
+  see docs/DATA_MODEL.md); the buffer never blocks the incoming submission itself.
 - `400` for missing fields / invalid time range. `404` if `venueId`/`departmentId` don't
   exist.
 
@@ -57,7 +59,9 @@ entry and best-effort emails the requester.
 ## `GET /v1/availability?venue=<id>&date=<YYYY-MM-DD>`
 
 Public. Returns the busy windows (pending + confirmed bookings) for that venue on that
-calendar day, for building an availability view without exposing booking details:
+calendar day, for building an availability view without exposing booking details. These
+are the raw booked windows (not extended by the venue's `bufferHours`) — it's an
+informational display feed, not the conflict-detection rule used by `hasConflict`:
 ```json
 { "venue": "main-hall", "date": "2026-10-12", "busy": [{ "start": "...", "end": "...", "status": "confirmed" }] }
 ```

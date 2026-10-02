@@ -78,7 +78,8 @@ non-admin accounts register — not built in this MVP).
 
 The public booking form needs at least one venue and department to exist. Either:
 - **Firestore console**: create a few documents in `venues` (fields: `name`, `capacity`,
-  `hireable`, `bufferMinutes`, `active`) and `departments` (fields: `name`, `colorHex`,
+  `hireable`, `bufferHours` — fractional hours applied only after a booking ends, see
+  docs/DATA_MODEL.md, `active`) and `departments` (fields: `name`, `colorHex`,
   `approvalRequired`, `active`), or
 - Sign in as the admin you created and use **Admin → Venues / Departments** in the app.
 

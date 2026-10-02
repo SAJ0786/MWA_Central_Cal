@@ -103,19 +103,19 @@ function PendingTab({ pending, venues, departments, hijriOverrides, onSaved }) {
 }
 
 function VenuesTab({ venues }) {
-  const [form, setForm] = useState({ name: '', capacity: '', bufferMinutes: '', openingHours: '' });
+  const [form, setForm] = useState({ name: '', capacity: '', bufferHours: '', openingHours: '' });
   async function add(e) {
     e.preventDefault();
     if (!form.name) return;
     await createVenue(form);
-    setForm({ name: '', capacity: '', bufferMinutes: '', openingHours: '' });
+    setForm({ name: '', capacity: '', bufferHours: '', openingHours: '' });
   }
   return (
     <div>
       <form className="card" onSubmit={add} style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div><label>Name</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
         <div><label>Capacity</label><input type="number" value={form.capacity} onChange={e => setForm(f => ({ ...f, capacity: e.target.value }))} /></div>
-        <div><label>Buffer (min)</label><input type="number" value={form.bufferMinutes} onChange={e => setForm(f => ({ ...f, bufferMinutes: e.target.value }))} /></div>
+        <div><label>Buffer (hours, after booking)</label><input type="number" step="0.25" min="0" value={form.bufferHours} onChange={e => setForm(f => ({ ...f, bufferHours: e.target.value }))} /></div>
         <button className="btn pri" type="submit">Add venue</button>
       </form>
       <table>
@@ -123,7 +123,7 @@ function VenuesTab({ venues }) {
         <tbody>
           {venues.map(v => (
             <tr key={v.id}>
-              <td>{v.name}</td><td>{v.capacity ?? '—'}</td><td>{v.bufferMinutes || 0} min</td>
+              <td>{v.name}</td><td>{v.capacity ?? '—'}</td><td>{resolveVenueBufferHours(v)} hr</td>
               <td>
                 <input type="checkbox" checked={v.active !== false} onChange={e => updateVenue(v.id, { active: e.target.checked })} />
               </td>
@@ -134,6 +134,15 @@ function VenuesTab({ venues }) {
       </table>
     </div>
   );
+}
+
+// Safe read-time fallback for venues created before the bufferMinutes -> bufferHours
+// rename: prefer bufferHours, else convert legacy bufferMinutes, else 0. No destructive
+// Firestore migration is required — every read resolves consistently.
+function resolveVenueBufferHours(v) {
+  if (v.bufferHours !== undefined && v.bufferHours !== null) return Number(v.bufferHours) || 0;
+  if (v.bufferMinutes !== undefined && v.bufferMinutes !== null) return Math.round(((Number(v.bufferMinutes) || 0) / 60) * 100) / 100;
+  return 0;
 }
 
 function DepartmentsTab({ departments }) {
