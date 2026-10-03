@@ -312,3 +312,6 @@ button (callable `recomputeAllConflicts`) to repair existing data.
 - Mobile (<=640px) now follows the prototype: compact header (title + status row, tabs), single-row 3-tile stats, toolbar rows `‹ Month ›  Today` / `Gregorian|Hijri  venue  + New`, single horizontally scrollable chips row, 7-column grid with ~98px cells, small event pills. Desktop layout is unchanged (toolbar wrappers use `display: contents`).
 - Cell dates: 15px (Gregorian black, Hijri green; 14/11px under 380px), month-start label shortened to 3 letters ("Rab", "Jum") so rows don't grow; tablet 24/18px; desktop remains doubled. Only today/selected are bold.
 - Safe-area bottom padding, bottom-sheet booking dialogs with sticky X close, inputs 16px (no iOS zoom), Bookings table scrolls horizontally with compact cells. Verified with headless Edge at 360/390/768/1280 px: no horizontal page overflow.
+
+## Secondary date line in calendar cells
+- Secondary calendar date now sits on its own line below the primary date in every cell, with an abbreviated month (Hijri: Muh, Saf, Rab I, Rab II, Jum I, Jum II, Raj, Sha, Ram, Shaw, DhQ, DhH; Gregorian: Jan..Dec). Gregorian black, Hijri green; only today/selected bold. Verified at 360/390/768/1280 with no horizontal overflow.

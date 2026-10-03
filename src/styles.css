@@ -280,3 +280,11 @@ td.dt-cell { font-weight: 400; }
 }
 @media (max-width: 1023px) { .cal-title .h-sub { font-size: 15px; } }
 @media (max-width: 640px) { .cal-nav .cal-title .h-sub { font-size: 11px; } }
+
+/* Secondary date on its own line below the primary date */
+.cell .cell-head { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 0; line-height: 1.1; min-width: 0; max-width: 100%; }
+.cell .cell-head .h-sub { display: block; font-size: 15px; font-weight: 400; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.cell.today .cell-head .h-sub, .cell.selected .cell-head .h-sub { font-weight: 800; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+@media (min-width: 1024px) { .cell .cell-head .h-sub { font-size: 18px; } }
+@media (max-width: 640px) { .cell .cell-head .h-sub { font-size: 10.5px; } }
+@media (max-width: 380px) { .cell .cell-head .h-sub { font-size: 9.5px; } }

@@ -13,6 +13,9 @@ import {
 } from '../utils/hijriCalendarGrid.js';
 import BookingModal from '../components/BookingModal.jsx';
 
+const H_ABBR = { 1: 'Muh', 2: 'Saf', 3: 'Rab I', 4: 'Rab II', 5: 'Jum I', 6: 'Jum II', 7: 'Raj', 8: 'Sha', 9: 'Ram', 10: 'Shaw', 11: 'DhQ', 12: 'DhH' };
+const G_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export default function CalendarPage({ events: rawEvents, venues, departments, isAdmin, hijriOverrides, onSaved }) {
   const events = useMemo(() => withLiveConflicts(rawEvents, venues, isAdmin), [rawEvents, venues, isAdmin]);
   // Which calendar drives month navigation / in-cell day numbering. Weekday
@@ -158,18 +161,14 @@ export default function CalendarPage({ events: rawEvents, venues, departments, i
           const list = byDay.get(cell.key) || [];
           const deptColor = (deptId) => departments.find(d => d.id === deptId)?.colorHex || '#2563eb';
           const mainNumber = primary === 'hijri' ? cell.hijri.day : cell.date.getDate();
-          const showMonthName = primary === 'hijri' ? cell.hijri.day === 1 : cell.date.getDate() === 1;
           const subNum = primary === 'hijri' ? cell.date.getDate() : (cell.hijri.year ? cell.hijri.day : '');
-          const subName = !showMonthName ? '' : primary === 'hijri'
-            ? cell.date.toLocaleDateString('en-AU', { month: 'short' })
-            : (HIJRI_MONTHS.find(m => m.value === cell.hijri.month)?.name || '');
-          const subLabel = subNum !== '' ? subNum : null;
+          const subMonth = primary === 'hijri' ? G_ABBR[cell.date.getMonth()] : (cell.hijri.year ? (H_ABBR[cell.hijri.month] || '') : '');
+          const subLabel = subNum !== '' ? `${subNum} ${subMonth}`.trim() : null;
           return (
             <div key={cell.key} className={`cell ${!cell.inMonth ? 'out' : ''} ${cell.key === todayKey ? 'today' : ''} ${cell.key === selectedKey ? 'selected' : ''}`}
                           onClick={() => { setSelectedKey(cell.key); setModal({ editing: null, newOnDate: cell.key }); }}>
                           <div className="cell-head"><span className={`n ${primary === 'hijri' ? 'dt-h' : 'dt-g'}`}>{mainNumber}</span>
-                          {subLabel ? <span className={`h-sub ${primary === 'hijri' ? 'dt-g' : 'dt-h'}`}>{subLabel}</span> : null}
-                          {subName ? <span className={`mname ${primary === 'hijri' ? 'dt-g' : 'dt-h'}`} title={subName}><span className="mn-full">{subName}</span><span className="mn-short">{subName.slice(0, 3)}</span></span> : null}</div>
+          {subLabel ? <span className={`h-sub ${primary === 'hijri' ? 'dt-g' : 'dt-h'}`} title={subLabel}>{subLabel}</span> : null}</div>
               {list.slice(0, 3).map(e => (
                 <button key={e.id} className={`ev ${e.status === 'pending' ? 'pend' : ''} ${e.masked && e.status !== 'pending' ? 'priv' : ''} ${e.hasConflict ? 'conflict' : ''}`}
                   style={e.masked ? undefined : { background: deptColor(e.departmentId) }}
