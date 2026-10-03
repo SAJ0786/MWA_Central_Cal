@@ -315,3 +315,8 @@ button (callable `recomputeAllConflicts`) to repair existing data.
 
 ## Secondary date line in calendar cells
 - Secondary calendar date now sits on its own line below the primary date in every cell, with an abbreviated month (Hijri: Muh, Saf, Rab I, Rab II, Jum I, Jum II, Raj, Sha, Ram, Shaw, DhQ, DhH; Gregorian: Jan..Dec). Gregorian black, Hijri green; only today/selected bold. Verified at 360/390/768/1280 with no horizontal overflow.
+
+## Hijri year default, dd/mm/yyyy Excel import/export, dropdown template
+- Hijri entry (booking form incl. series, admin Hijri adjustment form) defaults to today's Hijri date (Australia/Sydney civil date, active adjustment); switching to Hijri basis pre-fills empty day/month/year. User can still change them.
+- Excel import/export: dates are DD/MM/YYYY (day first) for both calendars. New **Date Basis** column (Gregorian default / Hijri). Hijri rows are Hijri day/month/year (AH), validated against Hijri month lengths (current adjustment) and stored Hijri-anchored (`dateBasis: hijri` + `hijriDate`). Parser accepts DD/MM/YYYY text, Excel serials (Gregorian only) and legacy YYYY-MM-DD. Export writes the row's source date in its basis plus informational Gregorian Date / Hijri Date columns, so export -> import round-trips.
+- Import template generated with ExcelJS 4.4.0 (write-only; adds a moderate `uuid` advisory that is not reachable: no buffer argument is passed): dropdowns for Date Basis, Department, Venue (from current active names, 'Lists' sheet), Status, Visibility over rows 2-501, plus an Instructions sheet. Uploads are still parsed by SheetJS and re-validated server-side.

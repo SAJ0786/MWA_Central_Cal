@@ -124,3 +124,5 @@ notes or department data. Subscribe to it from Google Calendar/Outlook. Served b
 | `recomputeAllConflicts` | admin | Repairs stored `hasConflict`/`conflictWith` for all venues |
 
 `deleteBooking` now keeps bookings that have already started (single: rejected; series scopes: only upcoming occurrences deleted, `kept` returned).
+
+> importBookings row dates: DD/MM/YYYY (Gregorian or Hijri per the row's `Date Basis` = Gregorian|Hijri, default Gregorian). Hijri rows are stored with `dateBasis: hijri` and `hijriDate`.

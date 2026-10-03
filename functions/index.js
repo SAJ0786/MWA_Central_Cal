@@ -1,4 +1,4 @@
-﻿const { initializeApp } = require('firebase-admin/app');
+const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
@@ -641,7 +641,8 @@ exports.importBookings = onCall({ cors: true, timeoutSeconds: 120 }, async (requ
     existingKeys.add(`${v.venueId}|${v.startAt}|${v.endAt}|${String(v.title || '').trim().toLowerCase()}`);
   });
 
-  const report = validateImportRows(rows, { departments, venues, existingById, existingKeys });
+  const hijriOverrides = await getHijriOverrides();
+  const report = validateImportRows(rows, { departments, venues, existingById, existingKeys, hijriOverrides });
   const summary = {
     errors: report.errors, counts: report.counts,
     rows: report.rows.map(r => ({ row: r.row, action: r.action, id: r.id || null, title: r.data.title, startAt: r.data.startAt, endAt: r.data.endAt, warnings: r.warnings }))
@@ -663,7 +664,7 @@ exports.importBookings = onCall({ cors: true, timeoutSeconds: 120 }, async (requ
       writes.push((batch) => batch.set(ref, base, { merge: true }));
     } else {
       created += 1;
-      writes.push((batch) => batch.set(ref, { ...base, hasConflict: false, conflictWith: [], dateBasis: 'gregorian', hijriDate: null, createdByUid: admin.uid, createdAt: FieldValue.serverTimestamp() }));
+      writes.push((batch) => batch.set(ref, { ...base, hasConflict: false, conflictWith: [], createdByUid: admin.uid, createdAt: FieldValue.serverTimestamp() }));
     }
     writes.push((batch) => batch.set(db.collection('auditLog').doc(), {
       entityType: 'event', entityId: ref.id, action: r.action === 'update' ? 'import_updated' : 'imported',

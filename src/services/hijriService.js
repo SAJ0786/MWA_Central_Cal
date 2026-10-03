@@ -214,8 +214,13 @@ export function hijriDisplayFromParts(hDay, hMonth, hYear) {
   return `${hDay} ${monthName} ${hYear} AH`;
 }
 
-/** Current Hijri year. */
+/** Today's Hijri {year,month,day} using the Australia/Sydney civil date and the active adjustment. */
+export function getTodayHijriParts(overrides = [], now = new Date()) {
+  const key = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Sydney', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  return getHijriParts(key, overrides);
+}
+
+/** Current Hijri year (Sydney date, with adjustment). */
 export function getCurrentHijriYear(overrides = []) {
-  const d = new Date();
-  return adjustedGregorianToIslamic(d.getFullYear(), d.getMonth() + 1, d.getDate(), overrides).year;
+  return getTodayHijriParts(overrides).year;
 }

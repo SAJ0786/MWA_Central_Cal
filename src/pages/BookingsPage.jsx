@@ -4,8 +4,10 @@ import { hijriLabel, dateKeyInOrgTz, timeKeyInOrgTz } from '../utils/dateUtils.j
 import { downloadCsv, downloadIcs } from '../services/exportService.js';
 import { importBookings, recomputeAllConflicts } from '../services/eventsService.js';
 import {
-  EXPORT_HEADERS, MAX_IMPORT_FILE_BYTES, bookingsToRows, templateRows, filterByDateRange
+  EXPORT_HEADERS, MAX_IMPORT_FILE_BYTES, bookingsToRows, filterByDateRange
 } from '../utils/excelUtils.js';
+import { getHijriParts } from '../services/hijriService.js';
+import { downloadTemplateXlsx } from '../services/templateService.js';
 import BookingModal from '../components/BookingModal.jsx';
 
 const MAX_ROWS = 500;
@@ -26,7 +28,7 @@ export default function BookingsPage({ events: rawEvents, venues, departments, i
     return list.sort((a, b) => a.startAt.localeCompare(b.startAt));
   }, [events, from, to]);
 
-  const fmt = { dateKey: dateKeyInOrgTz, timeKey: timeKeyInOrgTz, hijri: (iso) => hijriLabel(iso, hijriOverrides) };
+  const fmt = { dateKey: dateKeyInOrgTz, timeKey: timeKeyInOrgTz, hijriParts: (iso) => getHijriParts(dateKeyInOrgTz(iso), hijriOverrides) };
 
   function setRange(years) {
     const d = new Date();
@@ -44,10 +46,8 @@ export default function BookingsPage({ events: rawEvents, venues, departments, i
   }
 
   async function downloadTemplate() {
-    const XLSX = await import('xlsx');
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(templateRows()), 'Bookings');
-    XLSX.writeFile(wb, 'mwa-bookings-import-template.xlsx');
+    setMsg('');
+    try { await downloadTemplateXlsx({ departments, venues }); } catch (e) { setMsg('Could not build the template: ' + (e.message || e)); }
   }
 
   async function onFile(e) {

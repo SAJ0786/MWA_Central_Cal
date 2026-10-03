@@ -6,7 +6,7 @@ import {
   createDepartment, updateDepartment, deleteDepartment
 } from '../services/directoryService.js';
 import { getHijriSettings, saveMonthOverride, removeMonthOverride } from '../services/calendarSettingsService.js';
-import { HIJRI_MONTHS } from '../services/hijriService.js';
+import { HIJRI_MONTHS, getTodayHijriParts } from '../services/hijriService.js';
 import BookingModal from '../components/BookingModal.jsx';
 
 export default function AdminPage({ events, venues, departments, hijriOverrides, onSaved, onReloadSettings }) {
@@ -33,7 +33,7 @@ export default function AdminPage({ events, venues, departments, hijriOverrides,
       {sub === 'venues' && <VenuesTab venues={venues} />}
       {sub === 'departments' && <DepartmentsTab departments={departments} />}
       {sub === 'audit' && <AuditTab />}
-      {sub === 'hijri' && <HijriTab adjustedBy={user.email} onReloadSettings={onReloadSettings} />}
+      {sub === 'hijri' && <HijriTab adjustedBy={user.email} hijriOverrides={hijriOverrides} onReloadSettings={onReloadSettings} />}
     </section>
   );
 }
@@ -314,9 +314,10 @@ function AuditTab() {
   );
 }
 
-function HijriTab({ adjustedBy, onReloadSettings }) {
+function HijriTab({ adjustedBy, hijriOverrides, onReloadSettings }) {
+  const blankForm = () => { const h = getTodayHijriParts(hijriOverrides); return { hYear: h.year ? String(h.year) : '', hMonth: h.month ? String(h.month) : '1', gDate: '' }; };
   const [settings, setSettings] = useState({ overrides: [] });
-  const [form, setForm] = useState({ hYear: '', hMonth: '1', gDate: '' });
+  const [form, setForm] = useState(blankForm);
   const [err, setErr] = useState('');
 
   async function load() { setSettings(await getHijriSettings()); }
@@ -327,7 +328,7 @@ function HijriTab({ adjustedBy, onReloadSettings }) {
     setErr('');
     if (!form.hYear || !form.gDate) { setErr('Enter a Hijri year and the Gregorian date day 1 fell/falls on.'); return; }
     await saveMonthOverride(form.hYear, form.hMonth, form.gDate, adjustedBy);
-    setForm({ hYear: '', hMonth: '1', gDate: '' });
+    setForm(blankForm());
     await load();
     onReloadSettings && onReloadSettings();
   }

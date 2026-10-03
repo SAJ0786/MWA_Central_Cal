@@ -2,6 +2,7 @@
 // The workbook is parsed in the (admin-only) browser into plain row objects; this module
 // validates them server-side so the rules cannot be bypassed by a modified client.
 const { localToUtcIso } = require('./dateUtils');
+const { adjustedIslamicToGregorian, getHijriMonthLength } = require('./hijriService');
 
 const MAX_IMPORT_ROWS = 500;
 const STATUSES = ['pending', 'confirmed', 'rejected', 'cancelled'];
@@ -10,7 +11,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const HEADER_ALIASES = {
   id: 'id', title: 'title', department: 'department', venue: 'venue',
-  date: 'date', start: 'start', starttime: 'start', end: 'end', endtime: 'end',
+  date: 'date', datebasis: 'dateBasis', basis: 'dateBasis', start: 'start', starttime: 'start', end: 'end', endtime: 'end',
   status: 'status', visibility: 'visibility',
   contactname: 'contactName', contactemail: 'contactEmail', contactphone: 'contactPhone',
   notes: 'notes'
@@ -35,27 +36,54 @@ function normaliseHeaders(row) {
   return out;
 }
 
-/** 'YYYY-MM-DD' | 'DD/MM/YYYY' | Excel serial number -> 'YYYY-MM-DD' (or null). */
-function normaliseDate(value) {
+/**
+ * Parses a date cell into {y,m,d} (or null). Accepted: 'DD/MM/YYYY' (day first, also '-' or '.'
+ * separators), legacy 'YYYY-MM-DD', and (Gregorian only) an Excel serial number.
+ * Never interpreted as MM/DD. Calendar validity is NOT checked here.
+ */
+function parseDateParts(value, { allowSerial = true } = {}) {
   if (value === undefined || value === null || value === '') return null;
-  let y; let m; let d;
   if (typeof value === 'number' && Number.isFinite(value)) {
+    if (!allowSerial) return null;
     const t = new Date(Math.round((Math.floor(value) - 25569) * 86400000));
-    y = t.getUTCFullYear(); m = t.getUTCMonth() + 1; d = t.getUTCDate();
-  } else {
-    const s = String(value).trim();
-    let match = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
-    if (match) { y = +match[1]; m = +match[2]; d = +match[3]; } else {
-      match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
-      if (!match) return null;
-      d = +match[1]; m = +match[2]; y = +match[3];
-    }
+    return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() };
   }
+  const s = String(value).trim();
+  let match = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/.exec(s);
+  if (match) return { y: +match[1], m: +match[2], d: +match[3] };
+  match = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(s);
+  if (match) return { y: +match[3], m: +match[2], d: +match[1] };
+  return null;
+}
+
+/** Gregorian date cell -> 'YYYY-MM-DD' (or null if unparseable / not a real calendar date). */
+function normaliseDate(value) {
+  const p = parseDateParts(value);
+  if (!p) return null;
+  const { y, m, d } = p;
   const probe = new Date(Date.UTC(y, m - 1, d));
   if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== m - 1 || probe.getUTCDate() !== d) return null;
   return `${y}-${pad2(m)}-${pad2(d)}`;
 }
 
+/**
+ * Hijri date cell (day/month/year AH, 'DD/MM/YYYY') -> {day,month,year,gregorian:'YYYY-MM-DD'} or {error}.
+ * Validates the month length against the current moon-sighting adjustment.
+ */
+function resolveHijriDate(value, overrides = []) {
+  const p = parseDateParts(value, { allowSerial: false });
+  if (!p) {
+    return { error: typeof value === 'number' ? 'Hijri dates must be typed as text DD/MM/YYYY (AH), not an Excel date.' : 'Hijri date must be DD/MM/YYYY (AH).' };
+  }
+  const { y, m, d } = p;
+  if (y < 1300 || y > 1600) return { error: `Hijri year ${y} is out of range (1300-1600).` };
+  if (m < 1 || m > 12) return { error: `Hijri month ${m} is invalid (1-12).` };
+  const len = getHijriMonthLength(y, m, overrides);
+  if (d < 1 || d > len) return { error: `Hijri month ${m}/${y} has ${len} days; day ${d} is invalid.` };
+  const g = adjustedIslamicToGregorian(y, m, d, overrides);
+  if (!g || !g.year) return { error: 'Could not resolve the Hijri date.' };
+  return { day: d, month: m, year: y, gregorian: `${g.year}-${pad2(g.month)}-${pad2(g.day)}` };
+}
 /** 'HH:MM' | 'H:MM' | Excel day-fraction number -> 'HH:MM' (or null). */
 function normaliseTime(value) {
   if (value === undefined || value === null || value === '') return null;
@@ -114,8 +142,18 @@ function validateImportRows(rawRows, ctx) {
     if (!venueName) problems.push('Venue is required.');
     else if (!venue) problems.push(`Unknown venue "${venueName}" (add it under Admin > Venues first).`);
 
-    const date = normaliseDate(r.date);
-    if (!date) problems.push('Date must be YYYY-MM-DD or DD/MM/YYYY.');
+    const basisRaw = cleanText(r.dateBasis, 20).toLowerCase();
+    const dateBasis = !basisRaw || basisRaw.startsWith('g') ? 'gregorian' : basisRaw.startsWith('h') ? 'hijri' : null;
+    if (!dateBasis) problems.push('Date Basis must be Gregorian or Hijri.');
+    let date = null; let hijriDate = null;
+    if (dateBasis === 'hijri') {
+      const h = resolveHijriDate(r.date, ctx.hijriOverrides || []);
+      if (h.error) problems.push(h.error);
+      else { date = h.gregorian; hijriDate = { day: h.day, month: h.month, year: h.year }; }
+    } else if (dateBasis === 'gregorian') {
+      date = normaliseDate(r.date);
+      if (!date) problems.push('Date must be a valid Gregorian date as DD/MM/YYYY.');
+    }
     const start = normaliseTime(r.start);
     const end = normaliseTime(r.end);
     if (!start) problems.push('Start must be a time like 09:00.');
@@ -170,6 +208,7 @@ function validateImportRows(rawRows, ctx) {
         title, departmentId: dept.id, departmentName: dept.name,
         venueId: venue.id, venueName: venue.name,
         startAt, endAt, status, visibility,
+        dateBasis: dateBasis || 'gregorian', hijriDate,
         contactName: cleanText(r.contactName, 200),
         contactEmail,
         contactPhone: cleanText(r.contactPhone, 50),
@@ -182,5 +221,5 @@ function validateImportRows(rawRows, ctx) {
 }
 
 module.exports = {
-  validateImportRows, normaliseDate, normaliseTime, cleanText, MAX_IMPORT_ROWS
+  validateImportRows, normaliseDate, resolveHijriDate, normaliseTime, cleanText, MAX_IMPORT_ROWS
 };

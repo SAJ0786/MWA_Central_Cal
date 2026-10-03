@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { HIJRI_MONTHS, hijriToGregorian, getHijriParts } from '../services/hijriService.js';
+import { HIJRI_MONTHS, hijriToGregorian, getHijriParts, getTodayHijriParts } from '../services/hijriService.js';
 import { localToUtcIso, formatInOrgTz, dateKeyInOrgTz, timeKeyInOrgTz } from '../utils/dateUtils.js';
 import {
   submitBooking, decideBooking, updateBookingScoped, createRecurringBooking, deleteBooking,
@@ -56,6 +56,15 @@ export default function BookingModal({
     if (!form.hDay || !form.hMonth || !form.hYear) return '';
     return hijriToGregorian(Number(form.hDay), Number(form.hMonth), Number(form.hYear), hijriOverrides) || '';
   }, [form.basis, form.date, form.hDay, form.hMonth, form.hYear, hijriOverrides]);
+  // Switching to Hijri entry pre-fills empty day/month/year from today's Hijri date (Sydney civil date, active adjustment).
+  function switchBasis(basis) {
+    set('basis', basis);
+    if (basis !== 'h') return;
+    const h = getTodayHijriParts(hijriOverrides);
+    if (!h.year) return;
+    setForm(f => ({ ...f, basis, hDay: f.hDay || String(h.day), hMonth: f.hDay ? f.hMonth : String(h.month), hYear: f.hYear || String(h.year) }));
+  }
+
 
   const hijriPreview = useMemo(() => {
     if (form.basis !== 'g' || !form.date) return '';
@@ -306,7 +315,7 @@ export default function BookingModal({
             {!editing && (
               <>
                 <label>Date based on</label>
-                <select value={form.basis} onChange={e => set('basis', e.target.value)}>
+                <select value={form.basis} onChange={e => switchBasis(e.target.value)}>
                   <option value="g">Gregorian</option>
                   <option value="h">Hijri (Islamic)</option>
                 </select>

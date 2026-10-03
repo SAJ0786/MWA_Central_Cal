@@ -111,3 +111,5 @@ Written only by Cloud Functions (Admin SDK) — never directly by clients. Admin
 - Imported bookings are normal `events` docs (`createdByUid` = importing admin, audit action `imported`).
 
 - venues.coversAllVenues (bool, optional): whole-site venue; conflicts with bookings at every venue. If unset, names containing 'entire'/'whole' are treated as whole-site.
+
+- Imported rows with Date Basis = Hijri are stored Hijri-anchored (`dateBasis: 'hijri'`, `hijriDate {day,month,year}`); Gregorian rows as `dateBasis: 'gregorian'`.
