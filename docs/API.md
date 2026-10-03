@@ -126,3 +126,5 @@ notes or department data. Subscribe to it from Google Calendar/Outlook. Served b
 `deleteBooking` now keeps bookings that have already started (single: rejected; series scopes: only upcoming occurrences deleted, `kept` returned).
 
 > importBookings row dates: DD/MM/YYYY (Gregorian or Hijri per the row's `Date Basis` = Gregorian|Hijri, default Gregorian). Hijri rows are stored with `dateBasis: hijri` and `hijriDate`.
+
+Public `submitBooking` and unauthenticated `POST /v1/events` requests must start at least six hours after the current instant (configurable in `functions/calendarPolicy.json`). The server checks the resolved Gregorian start instant after applying the current Hijri adjustment and rejects earlier starts with `failed-precondition`; admins are exempt.

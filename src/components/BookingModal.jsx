@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { HIJRI_MONTHS, hijriToGregorian, getHijriParts, getTodayHijriParts } from '../services/hijriService.js';
 import { localToUtcIso, formatInOrgTz, dateKeyInOrgTz, timeKeyInOrgTz } from '../utils/dateUtils.js';
+import { adjustPublicBookingStart, earliestAllowedPublicStart, MIN_PUBLIC_LEAD_HOURS } from '../utils/publicLeadTime.js';
 import {
   submitBooking, decideBooking, updateBookingScoped, createRecurringBooking, deleteBooking,
   checkSlotConflicts, previewRecurringBooking
@@ -44,11 +45,13 @@ export default function BookingModal({
   const [conflict, setConflict] = useState(null);
   const [conflictErr, setConflictErr] = useState('');
   const [preview, setPreview] = useState(null);
+  const [protectionWarning, setProtectionWarning] = useState('');
 
   useEffect(() => {
     setForm(emptyForm(editing, initialDate, isAdmin));
     setErr(''); setOk(''); setLocked(false); setEditMode(false); setScope('single');
     setRep(DEFAULT_REPEAT); setConflict(null); setPreview(null);
+    setProtectionWarning('');
   }, [editing, open, initialDate, isAdmin]);
 
   const gregorianDate = useMemo(() => {
@@ -82,6 +85,32 @@ export default function BookingModal({
     return startAt && endAt ? { startAt, endAt } : null;
   }, [gregorianDate, form.start, form.end, form.endNextDay]);
 
+  useEffect(() => {
+    if (!open || isAdmin) return;
+    const patch = adjustPublicBookingStart({
+      date: gregorianDate,
+      start: form.start,
+      end: form.end,
+      endNextDay: form.endNextDay,
+      timeMode: form.timeMode,
+      localToUtcIso,
+      toOrgTimeParts: (iso) => ({ dateStr: dateKeyInOrgTz(iso), timeStr: timeKeyInOrgTz(iso) }),
+      addDays
+    });
+    if (!patch) return;
+    setProtectionWarning(`Public bookings must start at least ${MIN_PUBLIC_LEAD_HOURS} hours from now. The date/time was moved to the earliest available start.`);
+    setForm(f => ({
+      ...f,
+      date: f.basis === 'g' ? patch.date : f.date,
+      hDay: f.basis === 'h' ? String(getHijriParts(patch.date, hijriOverrides).day) : f.hDay,
+      hMonth: f.basis === 'h' ? String(getHijriParts(patch.date, hijriOverrides).month) : f.hMonth,
+      hYear: f.basis === 'h' ? String(getHijriParts(patch.date, hijriOverrides).year) : f.hYear,
+      start: patch.start,
+      end: patch.end,
+      endNextDay: patch.endNextDay
+    }));
+  }, [open, isAdmin, range, gregorianDate, form.start, form.end, form.endNextDay, form.timeMode, form.basis, hijriOverrides]);
+
   const watchConflicts = open && (!editing || (isAdmin && editing && (editMode || editing.status === 'pending' || editing.status === 'confirmed')));
   // Live, server-side conflict check (confirmed + pending, buffer-aware). Public callers only
   // learn that a conflict exists; admins also see the conflicting bookings.
@@ -110,14 +139,14 @@ export default function BookingModal({
   const isSeries = !!(editing && editing.seriesId);
   const readOnly = !!editing && !editMode;
 
-  function set(k, v) { setForm(f => ({ ...f, [k]: v })); setLocked(false); setPreview(null); }
+  function set(k, v) { setForm(f => ({ ...f, [k]: v })); setLocked(false); setPreview(null); setProtectionWarning(''); }
   function setR(k, v) { setRep(r => ({ ...r, [k]: v })); setLocked(false); setPreview(null); }
   function setTimeMode(mode) {
     const w = TIME_MODES[mode];
     setForm(f => (w
       ? { ...f, timeMode: mode, start: w.start, end: w.end, endNextDay: w.endNextDay }
       : { ...f, timeMode: 'custom', endNextDay: false }));
-    setLocked(false); setPreview(null);
+    setLocked(false); setPreview(null); setProtectionWarning('');
   }
   function clearForm() {
     setForm(emptyForm(null, initialDate, isAdmin));
@@ -215,6 +244,10 @@ export default function BookingModal({
     }
     if (!range || new Date(range.endAt) <= new Date(range.startAt)) { setErr('End time must be after start time.'); return; }
     const { startAt, endAt } = range;
+    if (!isAdmin && new Date(startAt).getTime() < earliestAllowedPublicStart()) {
+      setErr(`Public bookings must start at least ${MIN_PUBLIC_LEAD_HOURS} hours from now. Please choose a later time.`);
+      return;
+    }
     setBusy(true);
     try {
       const payload = {
@@ -350,6 +383,8 @@ export default function BookingModal({
                 {gregorianDate ? `= ${formatInOrgTz(localToUtcIso(gregorianDate, '12:00'), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}` : 'Not a valid Hijri date'}
               </div>
             )}
+
+            {!isAdmin && protectionWarning && <div className="conflict-warn" role="status">{protectionWarning}</div>}
 
             <div role="radiogroup" aria-label="Time of day" className="timemode">
               {[['custom', 'Set times'], ['allDay', 'All day (00:00–23:59)'], ['allNight', 'All night (18:00–06:00 next day)']].map(([v, label]) => (

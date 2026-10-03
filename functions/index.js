@@ -12,6 +12,7 @@ const { adjustedGregorianToIslamic, HIJRI_MONTHS } = require('./hijriService');
 const { sendMail, emailSecrets } = require('./mailer');
 const { resolveBufferHours, rangesOverlap, rangesConflict, computeAllConflicts, isWholeSiteVenue } = require('./conflictUtils');
 const { validateImportRows, MAX_IMPORT_ROWS } = require('./bookingImport');
+const { MIN_PUBLIC_LEAD_HOURS, validateBookingLeadTime } = require('./publicLeadTime');
 const { buildConflictResponse } = require('./conflictResponse');
 const { resolveBookingDates } = require('./hijriRecompute');
 const { projectPublicEvent } = require('./publicProjection');
@@ -212,6 +213,12 @@ exports.submitBooking = onCall({ cors: true, secrets: emailSecrets }, async (req
   // behalf may explicitly choose public/private; if they don't specify one,
   // it defaults to private (the safer choice for admin-entered bookings).
   const submitterIsAdmin = await isSubmitterAdmin(request.auth);
+  if (!validateBookingLeadTime(resolvedDates.startAt, submitterIsAdmin)) {
+    throw new HttpsError(
+      'failed-precondition',
+      `Public bookings must start at least ${MIN_PUBLIC_LEAD_HOURS} hours from now. Please choose a later date and time.`
+    );
+  }
   const explicitVisibility = sanitizeVisibility(data.visibility);
   const visibility = submitterIsAdmin
     ? (explicitVisibility || 'private')
@@ -788,12 +795,18 @@ app.post('/v1/events', async (req, res) => {
     const department = await getActiveDoc('departments', req.body.departmentId, 'Department');
     const overrides = await getHijriOverrides();
     const resolvedDates = resolveBookingDates(req.body, overrides);
+    const admin = await authenticateAdmin(req);
+    if (!validateBookingLeadTime(resolvedDates.startAt, !!admin)) {
+      throw new HttpsError(
+        'failed-precondition',
+        `Public bookings must start at least ${MIN_PUBLIC_LEAD_HOURS} hours from now. Please choose a later date and time.`
+      );
+    }
     const overlaps = await findOverlaps(req.body.venueId, resolvedDates.startAt, resolvedDates.endAt, null, undefined, resolveBufferHours(venue));
     // Same visibility rule as the submitBooking callable: public submissions
     // default to 'public' (safe â€” pending bookings are masked publicly regardless),
     // an authenticated admin caller may explicitly choose, defaulting to
     // 'private' for admin-entered bookings if unspecified.
-    const admin = await authenticateAdmin(req);
     const explicitVisibility = sanitizeVisibility(req.body.visibility);
     const visibility = admin ? (explicitVisibility || 'private') : (explicitVisibility || 'public');
     const ref = db.collection('events').doc();
@@ -870,7 +883,7 @@ app.get('/v1/availability', async (req, res) => {
 });
 
 function mapHttpsErrorCode(code) {
-  return { 'invalid-argument': 400, 'not-found': 404, 'permission-denied': 403, unauthenticated: 401 }[code] || 500;
+  return { 'invalid-argument': 400, 'failed-precondition': 400, 'not-found': 404, 'permission-denied': 403, unauthenticated: 401 }[code] || 500;
 }
 
 exports.api = onRequest({ cors: true }, app);

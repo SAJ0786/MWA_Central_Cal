@@ -309,7 +309,7 @@ button (callable `recomputeAllConflicts`) to repair existing data.
 - Needs deploy (functions + hosting) to take effect.
 
 ## Mobile layout overhaul (matches original prototype)
-- Mobile (<=640px) now follows the prototype: compact header (title + status row, tabs), single-row 3-tile stats, toolbar rows `‹ Month ›  Today` / `Gregorian|Hijri  venue  + New`, single horizontally scrollable chips row, 7-column grid with ~98px cells, small event pills. Desktop layout is unchanged (toolbar wrappers use `display: contents`).
+- Mobile (<=640px) now follows the prototype: compact header (title + status row, tabs), single-row 3-tile stats, toolbar rows `â€¹ Month â€º  Today` / `Gregorian|Hijri  venue  + New`, single horizontally scrollable chips row, 7-column grid with ~98px cells, small event pills. Desktop layout is unchanged (toolbar wrappers use `display: contents`).
 - Cell dates: 15px (Gregorian black, Hijri green; 14/11px under 380px), month-start label shortened to 3 letters ("Rab", "Jum") so rows don't grow; tablet 24/18px; desktop remains doubled. Only today/selected are bold.
 - Safe-area bottom padding, bottom-sheet booking dialogs with sticky X close, inputs 16px (no iOS zoom), Bookings table scrolls horizontally with compact cells. Verified with headless Edge at 360/390/768/1280 px: no horizontal page overflow.
 
@@ -320,3 +320,8 @@ button (callable `recomputeAllConflicts`) to repair existing data.
 - Hijri entry (booking form incl. series, admin Hijri adjustment form) defaults to today's Hijri date (Australia/Sydney civil date, active adjustment); switching to Hijri basis pre-fills empty day/month/year. User can still change them.
 - Excel import/export: dates are DD/MM/YYYY (day first) for both calendars. New **Date Basis** column (Gregorian default / Hijri). Hijri rows are Hijri day/month/year (AH), validated against Hijri month lengths (current adjustment) and stored Hijri-anchored (`dateBasis: hijri` + `hijriDate`). Parser accepts DD/MM/YYYY text, Excel serials (Gregorian only) and legacy YYYY-MM-DD. Export writes the row's source date in its basis plus informational Gregorian Date / Hijri Date columns, so export -> import round-trips.
 - Import template generated with ExcelJS 4.4.0 (write-only; adds a moderate `uuid` advisory that is not reachable: no buffer argument is passed): dropdowns for Date Basis, Department, Venue (from current active names, 'Lists' sheet), Status, Visibility over rows 2-501, plus an Instructions sheet. Uploads are still parsed by SheetJS and re-validated server-side.
+
+## Public booking six-hour lead-time protection
+- Public booking form warns and moves a past/too-soon Gregorian or Hijri-resolved date/time to the earliest eligible Sydney start, rounded up to a 15-minute instant boundary; custom duration is preserved when possible. All-day/night bookings move to the next complete eligible day/night. The check reruns after date, time, basis or time-mode changes and on initial form values.
+- The server independently rejects non-admin submissions whose resolved start instant is less than six hours away. Admins (including past edits, series and imports) remain exempt so historical records are preserved.
+- The shared default is `minimumPublicLeadHours: 6` in `functions/calendarPolicy.json`, consumed by the client and server.
