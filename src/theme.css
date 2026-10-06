@@ -1,0 +1,247 @@
+/*
+ * MWA Central design system (ported from the Lovable.dev redesign).
+ * Tokens, glass panels, shell, calendar and agenda styles are taken from the
+ * Lovable source; legacy class names used by the booking form, bookings table
+ * and admin screens are restyled below with the same tokens.
+ * Loaded after styles.css so it wins over the legacy rules.
+ */
+:root {
+  --radius: 1rem;
+  --background: oklch(0.974 0.004 160);
+  --foreground: oklch(0.32 0.025 160);
+  --card: oklch(1 0 0);
+  --primary: oklch(0.343 0.059 158);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.958 0.013 160);
+  --muted: oklch(0.974 0.003 160);
+  --muted-foreground: oklch(0.55 0.02 160);
+  --accent: oklch(0.5 0.067 156);
+  --destructive: oklch(0.58 0.21 25);
+  --border: oklch(0.924 0.008 160);
+  --amber: oklch(0.749 0.132 80);
+  --overlay: oklch(0.25 0.025 160 / 40%);
+  --frost-gradient: linear-gradient(160deg, oklch(1 0 0), oklch(0.974 0.004 160) 45%, oklch(0.946 0.01 160));
+  --panel-shadow: 0 1px 0 var(--card) inset, 0 26px 60px -34px color-mix(in oklab, var(--primary) 30%, transparent), 0 10px 26px -20px color-mix(in oklab, var(--primary) 20%, transparent);
+  --font-display: 'Sora', system-ui, sans-serif;
+  --font-sans: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* legacy aliases */
+  --bg: var(--background); --fg: var(--foreground); --mut: var(--muted-foreground); --bd: var(--border); --ac: var(--accent);
+}
+* { letter-spacing: 0; }
+body { background: var(--background); color: var(--foreground); font-family: var(--font-sans); font-size: 14px; padding-bottom: 0; }
+h1, h2, h3 { font-family: var(--font-display); }
+button, a, select { -webkit-tap-highlight-color: transparent; }
+
+.calendar-app { min-height: 100vh; background: var(--frost-gradient); }
+.app-container { max-width: 1200px; margin: auto; padding: 28px 24px calc(28px + env(safe-area-inset-bottom, 0px)); }
+.glass-panel { background: var(--card); border: 1px solid var(--card); border-radius: 16px; backdrop-filter: blur(22px) saturate(1.25); box-shadow: var(--panel-shadow); }
+
+/* ---- Buttons (Lovable variants) ---- */
+.lb, .btn, .tab { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s, color .15s; height: 36px; padding: 0 16px; border: 1px solid transparent; background: transparent; color: var(--foreground); }
+.lb svg { width: 16px; height: 16px; flex-shrink: 0; }
+.lb:focus-visible, .btn:focus-visible, .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lb:disabled, .btn:disabled { opacity: .5; cursor: not-allowed; }
+.lb-default, .btn.pri { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+.lb-default:hover, .btn.pri:hover { background: color-mix(in oklab, var(--primary) 90%, transparent); }
+.lb-soft { background: var(--secondary); color: var(--primary); }
+.lb-soft:hover { background: color-mix(in oklab, var(--secondary) 70%, transparent); }
+.lb-outline, .btn { border-color: var(--border); background: var(--card); box-shadow: 0 1px 2px rgb(0 0 0 / .05); }
+.lb-outline:hover, .btn:hover { background: var(--accent); color: var(--card); border-color: var(--accent); }
+.btn.pri:hover { border-color: var(--primary); }
+.lb-ghost:hover { background: var(--accent); color: var(--card); }
+.lb-nav, .tab { color: var(--muted-foreground); }
+.lb-nav:hover, .tab:hover { background: var(--secondary); color: var(--primary); }
+.lb-nav.nav-active, .tab.on { background: var(--secondary); color: var(--primary); border-color: transparent; }
+.lb-icon { width: 36px; padding: 0; }
+.lb-sm { height: 32px; font-size: 12px; padding: 0 12px; }
+.btn.del { color: var(--destructive); }
+.btn.del:hover { background: var(--destructive); color: #fff; border-color: var(--destructive); }
+
+.segmented, .seg { display: inline-flex; background: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 0; overflow: visible; }
+.segmented > button, .seg-btn { height: 30px; font-size: 11px; padding: 0 10px; border-radius: 7px; border: 0; background: transparent; color: var(--muted-foreground); cursor: pointer; font-weight: 500; }
+.segmented > button:hover, .seg-btn:hover { color: var(--primary); }
+.segmented > button[aria-pressed="true"], .seg-btn.on { background: var(--card); color: var(--primary); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+
+/* ---- Header / shell ---- */
+.app-header { min-height: 80px; padding: 16px 20px; display: flex; align-items: center; gap: 22px; }
+.app-header h1 { font-size: inherit; }
+.brand { display: flex; align-items: center; gap: 11px; padding-right: 24px; border-right: 1px solid var(--border); flex-shrink: 0; color: inherit; background: none; border-top: 0; border-left: 0; border-bottom: 0; cursor: pointer; text-align: left; }
+.brand-mark { width: 36px; height: 36px; border-radius: 9px; background: var(--primary); color: var(--primary-foreground); display: grid; place-items: center; }
+.brand strong { font-family: var(--font-display); font-size: 15px; font-weight: 600; display: block; }
+.brand small { display: block; font-size: 11px; color: var(--accent); margin-top: 3px; }
+.app-header nav, .header-actions { display: flex; align-items: center; gap: 4px; }
+.header-actions { margin-left: auto; gap: 10px; }
+.visitor { color: var(--muted-foreground); font-size: 11px; display: flex; gap: 6px; align-items: center; margin-left: 4px; white-space: nowrap; }
+.visitor > span, .status-dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; display: inline-block; }
+.visitor .admin-email { width: auto; height: auto; background: none; border-radius: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.app-footer { display: flex; justify-content: space-between; margin-top: 24px; padding: 0 4px; font-size: 10px; color: var(--muted-foreground); }
+.footer-dot { margin: 0 7px; }
+.page-panel { margin-top: 24px; padding: 28px; min-width: 0; }
+main { max-width: none; padding: 0; margin: 0; }
+
+/* ---- Calendar ---- */
+.calendar-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 24px; margin-top: 24px; align-items: stretch; }
+.calendar-main { padding: 24px; min-width: 0; }
+.calendar-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.month-controls { display: flex; align-items: center; gap: 8px; }
+.month-title { font-size: 22px; font-weight: 600; line-height: 1.4; margin: 0; }
+.month-subtitle { font-size: 11px; color: var(--accent); margin: 5px 0 0; }
+.toolbar-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.venue-select { font-size: 12px; border: 1px solid var(--border); padding: 9px 8px; border-radius: 9px; background: var(--card); color: var(--muted-foreground); max-width: 150px; height: 36px; }
+.dept-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.dept-chips .chip { font-size: 11px; font-weight: 600; padding: 4px 11px; border-radius: 999px; border-width: 1.5px; }
+.calendar-weekdays { margin-top: 23px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; text-align: center; font-size: 11px; font-weight: 600; color: var(--muted-foreground); padding-bottom: 10px; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.calendar-date { min-width: 0; min-height: 92px; padding: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; border-radius: 10px; border: 1px solid color-mix(in oklab, var(--border) 65%, transparent); background: var(--card); color: var(--foreground); font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s, border-color .15s; text-align: left; overflow: hidden; }
+.calendar-date:hover { background: var(--secondary); border-color: var(--accent); }
+.calendar-date:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.calendar-date.outside { background: var(--muted); color: color-mix(in oklab, var(--muted-foreground) 55%, var(--card)); }
+.calendar-date.today { background: var(--secondary); border-color: color-mix(in oklab, var(--accent) 40%, var(--card)); }
+.calendar-date.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.date-number { min-width: 25px; height: 25px; padding: 0 4px; display: grid; place-items: center; border-radius: 7px; font-size: 14px; font-weight: 500; }
+.calendar-date.today .date-number { background: var(--primary); color: var(--primary-foreground); font-weight: 800; }
+.calendar-date.selected .date-number { font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.hijri-date { font-size: 10px; color: var(--muted-foreground); line-height: 1.4; font-weight: 400; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dt-h { color: var(--accent); }
+.calendar-date.today .hijri-date, .calendar-date.selected .hijri-date { font-weight: 800; }
+.calendar-date.outside .dt-h, .calendar-date.outside .hijri-date { color: color-mix(in oklab, var(--muted-foreground) 55%, var(--card)); }
+.today-label { font-size: 8px; color: var(--accent); }
+.calendar-date .ev { margin-top: 0; font-size: 10px; padding: 1px 5px; border-radius: 5px; font-weight: 600; width: 100%; flex: 0 0 auto; }
+.calendar-date .more { font-size: 10px; color: var(--muted-foreground); }
+.week-grid .calendar-date { min-height: 350px; }
+.cell-events { display: flex; flex-direction: column; gap: 3px; width: 100%; min-width: 0; }
+.ev.pend { color: #1d2939; }
+.day-view { margin-top: 25px; border: 1px solid var(--border); border-radius: 10px; padding: 22px; min-height: 360px; }
+.day-view h2 { font-size: 16px; margin: 0; }
+.day-view > p { color: var(--muted-foreground); font-size: 12px; margin: 6px 0 0; }
+.day-view .dt-h { font-weight: 600; }
+.day-list { margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+.day-item { display: flex; gap: 12px; align-items: center; text-align: left; border: 1px solid var(--border); border-left-width: 4px; border-radius: 10px; padding: 10px 12px; background: var(--card); cursor: pointer; width: 100%; font-size: 13px; }
+.day-item:hover { background: var(--secondary); }
+.day-item .t { font-family: var(--font-display); font-weight: 600; font-size: 12px; min-width: 96px; color: var(--primary); }
+.day-item small { display: block; color: var(--muted-foreground); font-size: 11px; }
+.day-empty, .empty-agenda { text-align: center; }
+.day-empty { padding-top: 70px; }
+.empty-icon { width: 45px; height: 45px; margin: 0 auto 15px; background: var(--secondary); color: var(--accent); border-radius: 12px; display: grid; place-items: center; }
+.calendar-bottom { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--border); margin-top: 20px; padding-top: 16px; color: var(--muted-foreground); font-size: 11px; }
+.calendar-bottom > button { margin-left: auto; }
+
+/* ---- Agenda ---- */
+.agenda { padding: 23px 20px; display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.agenda-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.agenda-heading h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.today-badge { font-size: 10px; color: var(--accent); background: var(--secondary); padding: 6px 9px; border-radius: 20px; white-space: nowrap; }
+.agenda-section { padding: 0 0 20px; border-bottom: 1px solid var(--border); }
+.agenda-section:last-child { border-bottom: 0; padding-bottom: 0; flex: 1; }
+.section-eyebrow { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 10px; font-weight: 600; margin-bottom: 15px; text-transform: uppercase; }
+.empty-agenda { padding: 20px 0 17px; }
+.empty-agenda h3 { font-size: 14px; font-weight: 600; margin: 0; }
+.empty-agenda p { font-size: 12px; color: var(--muted-foreground); line-height: 1.8; margin: 8px auto 16px; max-width: 240px; }
+.empty-agenda button { width: 100%; font-size: 12px; }
+.agenda-item { display: flex; gap: 10px; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 9px 0; cursor: pointer; align-items: flex-start; }
+.agenda-item:last-child { border-bottom: 0; }
+.agenda-item .bar { width: 4px; align-self: stretch; border-radius: 4px; flex: 0 0 4px; margin: 0; padding: 0; }
+.agenda-item strong { font-size: 12px; font-weight: 600; display: block; }
+.agenda-item small { font-size: 11px; color: var(--muted-foreground); display: block; margin-top: 2px; }
+.pending-row { display: flex; align-items: center; gap: 12px; }
+.pending-count { width: 38px; height: 38px; border-radius: 9px; color: var(--accent); background: var(--secondary); display: grid; place-items: center; font-family: var(--font-display); }
+.pending-row strong { font-size: 12px; font-weight: 600; }
+.pending-row p { font-size: 11px; color: var(--muted-foreground); margin: 3px 0 0; }
+.venue-info { font-size: 12px; color: var(--muted-foreground); line-height: 1.6; }
+.venue-info ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.venue-info li strong { color: var(--foreground); font-weight: 600; display: block; }
+.venue-info li small { font-size: 11px; }
+
+/* ---- Legacy screens in the new language ---- */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.stat { background: var(--secondary); border: 0; border-radius: 12px; padding: 10px 14px; font-size: 11px; color: var(--muted-foreground); }
+.stat b { font-family: var(--font-display); font-size: 20px; color: var(--primary); }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: none; }
+.bar { gap: 8px; }
+.page-panel table, table { border: 1px solid var(--border); border-radius: 12px; border-collapse: separate; border-spacing: 0; overflow: hidden; background: var(--card); }
+th { font-size: 11px; text-transform: uppercase; color: var(--muted-foreground); background: var(--muted); font-weight: 600; }
+td, th { border-bottom-color: var(--border); }
+tr:last-child td { border-bottom: 0; }
+.tag { border-radius: 999px; font-weight: 600; }
+.st-confirmed { background: var(--accent); }
+.st-pending { background: var(--amber); color: #3b2a00; }
+.vis-public { background: var(--primary); }
+.overlay, #ov { background: var(--overlay); backdrop-filter: blur(4px); }
+.dlg { background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--panel-shadow); max-width: 520px; }
+.dlg h2, .dlg h3 { font-family: var(--font-display); }
+.dlg-close { background: var(--secondary); border-color: transparent; color: var(--primary); }
+.dlg-close:hover { background: var(--accent); color: #fff; }
+.dlg input, .dlg select, .dlg textarea, .range-bar input[type="date"], .login-form-area input { background: var(--card); border: 1px solid var(--border); border-radius: 9px; }
+.dlg input:focus, .dlg select:focus, .dlg textarea:focus, .login-form-area input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent); }
+.dlg label, .login-form-area label { color: var(--muted-foreground); font-weight: 600; font-size: 12px; }
+.conflict-warn { border: 1px solid var(--amber); background: color-mix(in oklab, var(--amber) 14%, var(--card)); color: oklch(0.38 0.07 70); border-radius: 12px; }
+.err { color: var(--destructive); }
+.ok { color: var(--accent); }
+.login-shell { background: none; min-height: 60vh; }
+.login-panel { border-radius: 16px; box-shadow: var(--panel-shadow); border-color: var(--border); }
+.login-hero { background: var(--primary); }
+.login-submit { background: var(--primary); }
+select.btn { height: 36px; padding: 0 10px; }
+.muted { color: var(--muted-foreground); }
+
+@media (max-width: 1100px) { .visitor { display: none; } .app-header { gap: 14px; } .brand { padding-right: 16px; } .calendar-layout { grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap: 18px; } .calendar-main { padding: 20px; } .month-title { font-size: 20px; } }
+@media (max-width: 850px) {
+  .calendar-layout { grid-template-columns: 1fr; }
+  .agenda { display: grid; grid-template-columns: 1fr 1fr; }
+  .agenda-heading { grid-column: 1 / -1; }
+  .agenda-section:first-of-type { grid-row: span 2; border-bottom: 0; padding-right: 20px; }
+  .app-header { flex-wrap: wrap; }
+  .header-actions { gap: 8px; }
+  .brand { border-right: 0; padding: 0; }
+  .app-header nav { margin-left: auto; }
+}
+@media (max-width: 550px) {
+  .app-container { padding: 14px 12px calc(20px + env(safe-area-inset-bottom, 0px)); padding-top: calc(14px + env(safe-area-inset-top, 0px)); }
+  .app-header { padding: 16px; gap: 14px; }
+  .brand strong { font-size: 13px; }
+  .app-header nav .lb { padding: 0 10px; font-size: 12px; }
+  .header-actions { margin-left: 0; width: 100%; justify-content: space-between; }
+  .header-actions > .lb { font-size: 11px; padding: 0 10px; }
+  .calendar-layout { margin-top: 16px; gap: 16px; }
+  .calendar-main { padding: 16px 12px; }
+  .month-title { font-size: 18px; }
+  .month-controls { gap: 5px; }
+  .month-controls .lb-icon { width: 32px; height: 32px; }
+  .toolbar-filters { gap: 6px; width: 100%; }
+  .venue-select { flex: 1 1 90px; min-width: 0; font-size: 16px; }
+  .segmented > button { padding: 0 8px; font-size: 10px; }
+  .calendar-date { padding: 4px 3px; min-height: 77px; border-radius: 8px; gap: 2px; align-items: center; }
+  .date-number { min-width: 20px; height: 20px; font-size: 12px; }
+  .calendar-grid, .calendar-weekdays { gap: 4px; }
+  .hijri-date { font-size: 8px; text-align: center; }
+  .calendar-date .ev { font-size: 8.5px; padding: 0 3px; }
+  .calendar-weekdays { font-size: 9px; }
+  .calendar-bottom { gap: 6px; font-size: 10px; }
+  .calendar-bottom > button { margin-left: 0; margin-top: 6px; width: 100%; }
+  .agenda { display: flex; padding: 20px; }
+  .agenda-section:first-of-type { border-bottom: 1px solid var(--border); padding-right: 0; }
+  .app-footer { font-size: 9px; gap: 12px; }
+  .week-grid .calendar-date { min-height: 230px; }
+  .page-panel { padding: 16px 12px; margin-top: 16px; }
+  .dlg { border-radius: 16px 16px 0 0; }
+  input, select, textarea { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* neutralise legacy mobile header rules */
+header.app-header { justify-content: flex-start; border-bottom: 1px solid var(--card); background: var(--card); }
+@media (max-width: 640px) {
+  header.app-header { padding: 16px; gap: 14px; }
+  .app-header nav { order: 0; width: auto; }
+  .app-header .brand { order: 0; flex: 0 0 auto; }
+  .header-actions { order: 0; }
+}
+@media (max-width: 550px) {
+  .venue-select { flex: 1 1 110px; padding: 0 6px; font-size: 14px; }
+  .toolbar-filters .segmented { flex: 0 0 auto; }
+}
+
+/* Lovable's rounded-md resolves to calc(var(--radius) - 2px) */
+.lb, .btn, .tab { border-radius: calc(var(--radius) - 2px); }
+.lb-sm { border-radius: calc(var(--radius) - 2px); }
+.btn.pri, .lb-default, .lb-outline, .btn { box-shadow: 0 1px 2px rgb(0 0 0 / .08), 0 2px 6px -2px color-mix(in oklab, var(--primary) 18%, transparent); }

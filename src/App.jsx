@@ -4,10 +4,12 @@ import { firebaseConfigured } from './firebase/firebase.js';
 import { watchVenues, watchDepartments } from './services/directoryService.js';
 import { watchAllEvents, fetchPublicEvents } from './services/eventsService.js';
 import { getHijriSettings } from './services/calendarSettingsService.js';
+import { dateKeyInOrgTz } from './utils/dateUtils.js';
 import Header from './components/Header.jsx';
 import CalendarPage from './pages/CalendarPage.jsx';
 import BookingsPage from './pages/BookingsPage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
+import BookingModal from './components/BookingModal.jsx';
 
 export default function App() {
   const { isAdmin } = useAuth();
@@ -17,6 +19,7 @@ export default function App() {
   const [events, setEvents] = useState([]);
   const [hijriOverrides, setHijriOverrides] = useState([]);
   const [publicLoadTick, setPublicLoadTick] = useState(0);
+  const [newBooking, setNewBooking] = useState(null); // { date } when the header's New booking dialog is open
 
   useEffect(() => {
     if (!firebaseConfigured) return undefined;
@@ -58,23 +61,38 @@ export default function App() {
   }
 
   return (
-    <>
-      <Header tab={tab} setTab={setTab} />
-      <main>
-        {tab === 'calendar' && (
-          <CalendarPage events={events} venues={venues} departments={departments}
-            isAdmin={isAdmin} hijriOverrides={hijriOverrides} onSaved={reloadPublic} />
-        )}
-        {tab === 'bookings' && (
-          <BookingsPage events={events} venues={venues} departments={departments}
-            isAdmin={isAdmin} hijriOverrides={hijriOverrides} onSaved={reloadPublic} />
-        )}
-        {tab === 'admin' && (
-          <AdminPage events={events} venues={venues} departments={departments}
-            hijriOverrides={hijriOverrides} onSaved={reloadPublic}
-            onReloadSettings={() => getHijriSettings().then(s => setHijriOverrides(s.overrides || []))} />
-        )}
-      </main>
-    </>
+    <div className="calendar-app">
+      <div className="app-container">
+        <Header tab={tab} setTab={setTab} onNewBooking={() => setNewBooking({ date: null })} />
+        <main>
+          {tab === 'calendar' && (
+            <CalendarPage events={events} venues={venues} departments={departments}
+              isAdmin={isAdmin} hijriOverrides={hijriOverrides} onSaved={reloadPublic} />
+          )}
+          {tab === 'bookings' && (
+            <div className="page-panel glass-panel">
+              <BookingsPage events={events} venues={venues} departments={departments}
+                isAdmin={isAdmin} hijriOverrides={hijriOverrides} onSaved={reloadPublic} />
+            </div>
+          )}
+          {tab === 'admin' && (
+            <div className="page-panel glass-panel">
+              <AdminPage events={events} venues={venues} departments={departments}
+                hijriOverrides={hijriOverrides} onSaved={reloadPublic}
+                onReloadSettings={() => getHijriSettings().then(s => setHijriOverrides(s.overrides || []))} />
+            </div>
+          )}
+        </main>
+        <footer className="app-footer">
+          <span>MWA Central Calendar</span>
+          <span>Australia/Sydney <span className="footer-dot">·</span> {isAdmin ? 'Admin view' : 'Public calendar'}</span>
+        </footer>
+      </div>
+      {newBooking && (
+        <BookingModal open={true} onClose={() => setNewBooking(null)} venues={venues} departments={departments}
+          editing={null} initialDate={newBooking.date || dateKeyInOrgTz(new Date().toISOString())} isAdmin={isAdmin}
+          hijriOverrides={hijriOverrides} onSaved={reloadPublic} />
+      )}
+    </div>
   );
 }

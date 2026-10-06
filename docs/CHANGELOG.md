@@ -325,3 +325,28 @@ button (callable `recomputeAllConflicts`) to repair existing data.
 - Public booking form warns and moves a past/too-soon Gregorian or Hijri-resolved date/time to the earliest eligible Sydney start, rounded up to a 15-minute instant boundary; custom duration is preserved when possible. All-day/night bookings move to the next complete eligible day/night. The check reruns after date, time, basis or time-mode changes and on initial form values.
 - The server independently rejects non-admin submissions whose resolved start instant is less than six hours away. Admins (including past edits, series and imports) remain exempt so historical records are preserved.
 - The shared default is `minimumPublicLeadHours: 6` in `functions/calendarPolicy.json`, consumed by the client and server.
+
+
+## Lovable UI redesign applied (design system)
+
+The Lovable.dev redesign ("MWA Central" green/frosted look) is applied to the live app.
+Presentation only: Firebase, Firestore, functions, Hijri anchoring, privacy masking,
+conflict checks, the 6h rule, Excel and all admin features are unchanged.
+
+- Approach: the Lovable design is almost entirely custom CSS (tokens + glass panels +
+  a few classes), so its tokens and styles were ported verbatim as plain CSS in
+  `src/theme.css` (oklch palette, Sora/Manrope fonts, 1rem radius, `glass-panel`,
+  button variants nav/segment/soft/outline, calendar cells, agenda). Tailwind/shadcn/Radix
+  were deliberately not added (no preflight clash with existing screens, no bundle growth);
+  only `lucide-react` was added for icons.
+- Shell: brand mark, nav pills, New booking (opens the real booking form), Admin sign in /
+  signed-in email + Sign out, Public visitor chip, footer. Page title/meta updated.
+- Calendar: Month / Week / Day views over real bookings, Gregorian/Hijri segmented toggle,
+  venue select, department chips, Today, today/selected/outside cell styles, secondary date
+  below with abbreviated month, event pills, bottom status line with real counts.
+- Agenda sidebar: selected-day bookings, pending requests (admin: detail + conflict count;
+  public: count of unconfirmed), venue availability from real venues, Today badge.
+- Bookings table, admin tabs, sign-in and the booking dialog are restyled with the same
+  tokens via legacy class overrides at the end of `src/theme.css`.
+- Differences from the mock: Hijri text uses the theme green; Lovable date sizes are used on
+  the calendar (not the earlier doubled sizes); filters/chips/stats that the mock lacks were kept.
