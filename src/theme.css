@@ -245,3 +245,14 @@ header.app-header { justify-content: flex-start; border-bottom: 1px solid var(--
 .lb, .btn, .tab { border-radius: calc(var(--radius) - 2px); }
 .lb-sm { border-radius: calc(var(--radius) - 2px); }
 .btn.pri, .lb-default, .lb-outline, .btn { box-shadow: 0 1px 2px rgb(0 0 0 / .08), 0 2px 6px -2px color-mix(in oklab, var(--primary) 18%, transparent); }
+
+/* ===== Dialogs: viewport-fit, single scroll area, no jitter ===== */
+html { scrollbar-gutter: stable; }
+.overlay, #ov { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; overflow: hidden; overscroll-behavior: contain; backdrop-filter: none; background: var(--overlay); }
+.overlay .dlg, #ov .dlg { width: min(560px, 100%); max-width: 560px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; animation: none; transform: none; will-change: auto; scrollbar-gutter: stable; }
+.dlg-close { position: sticky; top: 0; float: right; z-index: 3; margin: -4px -4px 4px 8px; }
+.dlg h3 { margin-top: 0; }
+@media (max-width: 640px) {
+  .overlay, #ov { align-items: flex-end; padding: 0; }
+  .overlay .dlg, #ov .dlg { width: 100%; max-width: none; max-height: 92vh; max-height: 92dvh; border-radius: 16px 16px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+}

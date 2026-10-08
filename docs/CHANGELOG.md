@@ -350,3 +350,6 @@ conflict checks, the 6h rule, Excel and all admin features are unchanged.
   tokens via legacy class overrides at the end of `src/theme.css`.
 - Differences from the mock: Hijri text uses the theme green; Lovable date sizes are used on
   the calendar (not the earlier doubled sizes); filters/chips/stats that the mock lacks were kept.
+## Modal fix
+- Dialogs now render via a portal on document.body (the glass page panel's backdrop-filter was the containing block for the fixed overlay, making dialogs tiny/shaky).
+- Viewport-fit sizing (100dvh - margins), single scroll area, sticky close, stable scrollbar gutter, no animations/blur on overlay; bottom sheet on mobile.

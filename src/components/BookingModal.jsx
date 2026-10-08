@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { HIJRI_MONTHS, hijriToGregorian, getHijriParts, getTodayHijriParts } from '../services/hijriService.js';
 import { localToUtcIso, formatInOrgTz, dateKeyInOrgTz, timeKeyInOrgTz } from '../utils/dateUtils.js';
 import { adjustPublicBookingStart, earliestAllowedPublicStart, MIN_PUBLIC_LEAD_HOURS } from '../utils/publicLeadTime.js';
@@ -28,7 +29,7 @@ const fmtRange = (s, e) => `${formatInOrgTz(s, { weekday: 'short', day: 'numeric
 
 const DEFAULT_REPEAT = { on: false, frequency: 'week', repeatEvery: 1, endMode: 'count', count: 10, endDate: '', status: 'confirmed' };
 
-export default function BookingModal({
+function BookingModalInner({
   open, onClose, venues, departments, editing, isAdmin, hijriOverrides, onSaved, initialDate
 }) {
   const [form, setForm] = useState(() => emptyForm(editing, initialDate, isAdmin));
@@ -597,4 +598,10 @@ function emptyForm(editing, initialDate, isAdmin) {
 function isoTime(iso) {
   if (!iso) return '09:00';
   return timeKeyInOrgTz(iso) || '09:00';
+}
+
+// Rendered on document.body so ancestors with backdrop-filter/transform (glass panels)
+// can't become the containing block of the fixed overlay.
+export default function BookingModal(props) {
+  return createPortal(<BookingModalInner {...props} />, document.body);
 }
