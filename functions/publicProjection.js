@@ -13,6 +13,12 @@
 // any field added to events later is private by default.
 const MASKED_TITLES = { private: 'Private', pending: 'Unconfirmed booking' };
 
+// MWA Programs events are never private: once confirmed they are always public.
+const ALWAYS_PUBLIC_DEPARTMENT = 'mwa programs';
+function isAlwaysPublicDepartment(name) {
+  return String(name || '').trim().toLowerCase() === ALWAYS_PUBLIC_DEPARTMENT;
+}
+
 function projectPublicEvent(d, id, hijri) {
   if (!d) return null;
   const base = {
@@ -25,7 +31,7 @@ function projectPublicEvent(d, id, hijri) {
     dateBasis: d.dateBasis || 'gregorian',
     hijri: hijri || null
   };
-  if (d.status === 'confirmed' && d.visibility === 'public') {
+  if (d.status === 'confirmed' && (d.visibility === 'public' || isAlwaysPublicDepartment(d.departmentName))) {
     return {
       ...base,
       title: d.title,
@@ -40,4 +46,4 @@ function projectPublicEvent(d, id, hijri) {
   return null;
 }
 
-module.exports = { projectPublicEvent, MASKED_TITLES };
+module.exports = { projectPublicEvent, isAlwaysPublicDepartment, MASKED_TITLES };

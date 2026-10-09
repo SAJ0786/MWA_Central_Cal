@@ -357,6 +357,8 @@ conflict checks, the 6h rule, Excel and all admin features are unchanged.
 ## Monthly PDF calendar export
 - New **PDF** button on the calendar toolbar: choose a Gregorian or Hijri month, filter by department (event type) and venue, and download an A4 poster in the MWA monthly-calendar format (Islamic date | MWA event date | event, multi-page when needed).
 - Public visitors get confirmed public events only; admins can additionally include pending requests or non-public events.
+- Public visitors can only pick the month/basis; the calendar is always MWA Programs events at all venues (no department/venue pickers). Admins keep every option.
+- **MWA Programs is never private**: confirmed MWA Programs events are always projected publicly (`functions/publicProjection.js`), regardless of the stored visibility flag. Requires a functions deploy.
 - Artwork: `scripts/build-pdf-template.py` erases the month-specific text from the supplied design (`scripts/pdf-template-source.jpg`) to produce `src/assets/pdf-template-bg.jpg`; MWA logo in `src/assets/mwa-logo.png`. Text is drawn at runtime (`src/services/pdfCalendar.js`, data in `pdfModel.js`). jsPDF is lazy-loaded.
 - Footer contact/dua lines are part of the artwork; edit the source image and re-run the script to change them.
 - Fonts: Playfair Display and Amiri (Google Fonts) with serif fallbacks offline.

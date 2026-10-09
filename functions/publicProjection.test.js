@@ -34,6 +34,12 @@ test('confirmed + private is masked as "Private" with no title/department/contac
   assert.ok(!s.includes('SECRET-TITLE') && !s.includes('DEPT-SECRET') && !s.includes('dept-secret'));
 });
 
+test('confirmed MWA Programs is public even if stored private', () => {
+  const p = projectPublicEvent(raw({ visibility: 'private', departmentName: 'MWA Programs' }), 'e1', null);
+  assert.equal(p.masked, false);
+  assert.equal(p.visibility, 'public');
+});
+
 test('confirmed with missing visibility defaults to masked (safe default)', () => {
   assert.equal(projectPublicEvent(raw({ visibility: undefined }), 'e1').masked, true);
 });

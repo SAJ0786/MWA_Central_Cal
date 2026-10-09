@@ -2,14 +2,18 @@ import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { buildPdfModel, GREGORIAN_MONTH_NAMES, PDF_HIJRI_MONTH_OPTIONS } from '../services/pdfModel.js';
 
+const PUBLIC_DEPARTMENT_NAME = 'MWA Programs';
+
 export default function PdfExportModal({ events, venues, departments, isAdmin, overrides, initial, onClose }) {
   const [basis, setBasis] = useState(initial.basis);
   const [gYear, setGYear] = useState(initial.gCursor.year);
   const [gMonth, setGMonth] = useState(initial.gCursor.month);
   const [hYear, setHYear] = useState(initial.hCursor.hYear);
   const [hMonth, setHMonth] = useState(initial.hCursor.hMonth);
-  const [deptIds, setDeptIds] = useState(() => new Set(initial.deptFilter));
-  const [venueId, setVenueId] = useState(initial.venueFilter || '');
+  // Public visitors can only print the MWA Programs calendar, across all venues.
+  const publicDept = useMemo(() => departments.find(d => d.name.trim().toLowerCase() === PUBLIC_DEPARTMENT_NAME.toLowerCase()), [departments]);
+  const [deptIds, setDeptIds] = useState(() => (isAdmin ? new Set(initial.deptFilter) : new Set(publicDept ? [publicDept.id] : [])));
+  const [venueId, setVenueId] = useState(isAdmin ? (initial.venueFilter || '') : '');
   const [includePending, setIncludePending] = useState(false);
   const [publicOnly, setPublicOnly] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -20,10 +24,10 @@ export default function PdfExportModal({ events, venues, departments, isAdmin, o
   const filtered = useMemo(() => events.filter(e =>
     !e.masked &&
     (e.status === 'confirmed' || (isAdmin && includePending && e.status === 'pending')) &&
-    (!isAdmin || !publicOnly || e.visibility === 'public') &&
-    (!e.departmentId || deptIds.has(e.departmentId)) &&
-    (!venueId || e.venueId === venueId)
-  ), [events, isAdmin, includePending, publicOnly, deptIds, venueId]);
+    (!isAdmin || !publicOnly || e.visibility === 'public' || e.departmentId === publicDept?.id) &&
+    (isAdmin ? (!e.departmentId || deptIds.has(e.departmentId)) : (!!publicDept && e.departmentId === publicDept.id)) &&
+    (!isAdmin || !venueId || e.venueId === venueId)
+  ), [events, isAdmin, includePending, publicOnly, deptIds, venueId, publicDept]);
 
   const model = useMemo(() => {
     if (!yearOk) return null;
@@ -79,6 +83,7 @@ export default function PdfExportModal({ events, venues, departments, isAdmin, o
         </div>
         {!yearOk && <div className="err" role="alert">Enter a valid year.</div>}
 
+        {isAdmin && (<>
         <label style={{ marginTop: 12 }}>Event types (departments)</label>
         <div className="dept-chips" style={{ margin: '4px 0 8px' }}>
           {departments.map(d => (
@@ -96,6 +101,8 @@ export default function PdfExportModal({ events, venues, departments, isAdmin, o
           <option value="">All venues</option>
           {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
         </select>
+        </>)}
+        {!isAdmin && <p className="muted" style={{ marginTop: 12 }}>This calendar lists confirmed {PUBLIC_DEPARTMENT_NAME} events at all venues.</p>}
 
         {isAdmin && (
           <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
