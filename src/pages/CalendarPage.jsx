@@ -12,7 +12,8 @@ import {
   shiftGregorianCursor,
   shiftHijriCursor
 } from '../utils/hijriCalendarGrid.js';
-import { ChevronLeft, ChevronRight, CalendarDays, MapPin, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays, MapPin, Plus, FileDown } from 'lucide-react';
+import PdfExportModal from '../components/PdfExportModal.jsx';
 import { getHijriParts } from '../services/hijriService.js';
 import BookingModal from '../components/BookingModal.jsx';
 
@@ -37,6 +38,7 @@ export default function CalendarPage({ events: rawEvents, venues, departments, i
   const [deptFilter, setDeptFilter] = useState(() => new Set(departments.map(d => d.id)));
   const [venueFilter, setVenueFilter] = useState('');
   const [modal, setModal] = useState(null); // { editing } | { newOnDate }
+  const [pdfOpen, setPdfOpen] = useState(false);
 
   const [view, setView] = useState('month'); // 'month' | 'week' | 'day'
   const todayInit = dateKeyInOrgTz(new Date().toISOString());
@@ -222,6 +224,7 @@ export default function CalendarPage({ events: rawEvents, venues, departments, i
                 <option value="">All venues</option>
                 {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
+              <button type="button" className="lb lb-outline lb-sm" onClick={() => setPdfOpen(true)} title="Download monthly calendar as PDF"><FileDown size={16} /> PDF</button>
               <div className="segmented" role="group" aria-label="Calendar view">
                 {['month', 'week', 'day'].map(m => (
                   <button key={m} type="button" aria-pressed={view === m} onClick={() => setView(m)}>{m[0].toUpperCase() + m.slice(1)}</button>
@@ -352,6 +355,17 @@ export default function CalendarPage({ events: rawEvents, venues, departments, i
           isAdmin={isAdmin}
           hijriOverrides={hijriOverrides}
           onSaved={() => { onSaved(); }}
+        />
+      )}
+      {pdfOpen && (
+        <PdfExportModal
+          events={events}
+          venues={venues}
+          departments={departments}
+          isAdmin={isAdmin}
+          overrides={hijriOverrides}
+          initial={{ basis: primary, gCursor, hCursor, deptFilter: [...deptFilter], venueFilter }}
+          onClose={() => setPdfOpen(false)}
         />
       )}
     </section>

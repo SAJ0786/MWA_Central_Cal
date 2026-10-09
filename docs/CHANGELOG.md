@@ -353,3 +353,10 @@ conflict checks, the 6h rule, Excel and all admin features are unchanged.
 ## Modal fix
 - Dialogs now render via a portal on document.body (the glass page panel's backdrop-filter was the containing block for the fixed overlay, making dialogs tiny/shaky).
 - Viewport-fit sizing (100dvh - margins), single scroll area, sticky close, stable scrollbar gutter, no animations/blur on overlay; bottom sheet on mobile.
+
+## Monthly PDF calendar export
+- New **PDF** button on the calendar toolbar: choose a Gregorian or Hijri month, filter by department (event type) and venue, and download an A4 poster in the MWA monthly-calendar format (Islamic date | MWA event date | event, multi-page when needed).
+- Public visitors get confirmed public events only; admins can additionally include pending requests or non-public events.
+- Artwork: `scripts/build-pdf-template.py` erases the month-specific text from the supplied design (`scripts/pdf-template-source.jpg`) to produce `src/assets/pdf-template-bg.jpg`; MWA logo in `src/assets/mwa-logo.png`. Text is drawn at runtime (`src/services/pdfCalendar.js`, data in `pdfModel.js`). jsPDF is lazy-loaded.
+- Footer contact/dua lines are part of the artwork; edit the source image and re-run the script to change them.
+- Fonts: Playfair Display and Amiri (Google Fonts) with serif fallbacks offline.
