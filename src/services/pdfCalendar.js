@@ -98,17 +98,21 @@ function drawPage(ctx, { bg, logo }, model, rows, pageNo, pageCount) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
 
-  // Logo, centred under the association name over the ornament.
-  const lh = 52, lw = lh * logo.width / logo.height;
-  ctx.drawImage(logo, 450 - lw / 2, 72, lw, lh);
+  // Logo centred at the very top, association name beneath it.
+  const lh = 50, lw = lh * logo.width / logo.height;
+  ctx.drawImage(logo, 460 - lw / 2, 4, lw, lh);
+  const org = 'MUHAMMADI WELFARE ASSOCIATION';
+  fit(ctx, org, s => `600 ${s}px ${BODY}`, 27, 560, 16);
+  ctx.fillStyle = GREEN;
+  ctx.fillText(org, 460, 80);
 
   // Month title (last word gold when there are several, e.g. RABI SANI).
   const title = model.titleWords.join(' ');
-  const ts = fit(ctx, title, s => `700 ${s}px ${SERIF}`, 76, 410, 30);
+  const ts = fit(ctx, title, s => `700 ${s}px ${SERIF}`, 62, 330, 30);
   ctx.font = `700 ${ts}px ${SERIF}`;
   setSpacing(ctx, 1);
   const total = ctx.measureText(title).width;
-  let x = 480 - total / 2;
+  let x = 470 - total / 2;
   ctx.textAlign = 'left';
   model.titleWords.forEach((w, i) => {
     const gold = model.titleWords.length > 1 && i === model.titleWords.length - 1;

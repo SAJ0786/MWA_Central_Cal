@@ -69,6 +69,7 @@ def flat(x0, y0, x1, y1, color):
             px[x, y] = color
 
 
+wipe_glyphs(160, 30, 766, 72, margin=8, grow=9, blur=3, feather=4)  # association name (redrawn lower so the logo can sit above)
 wipe_glyphs(80, 104, 242, 220)  # Arabic month name inside the crescent
 inpaint(278, 118, 692, 190)   # month title
 inpaint(338, 205, 572, 242)   # year pill text
